@@ -1,0 +1,15 @@
+Dockerfile
+.dockerignore
+node_modules
+**/node_modules
+.next
+**/.next
+.git
+**/.git
+.env*
+**/.env*
+kb_maker_backup
+deploy-cloudrun.sh
+.DS_Store
+**/.DS_Store
+*.tsbuildinfo

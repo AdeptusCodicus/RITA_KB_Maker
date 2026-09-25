@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  output: "standalone",
   // pdf-parse and tesseract.js use Node.js APIs not available in edge runtime.
   serverExternalPackages: ["pdf-parse", "tesseract.js"],
 

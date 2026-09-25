@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Next.js build
+.next/
+**/.next/
+out/
+build/
+
+# Local Environment & Deployment scripts with tokens
+.env*
+**/.env*
+*.local
+deploy-cloudrun.sh
+
+# OS files
+.DS_Store
+**/.DS_Store
+*.pem
