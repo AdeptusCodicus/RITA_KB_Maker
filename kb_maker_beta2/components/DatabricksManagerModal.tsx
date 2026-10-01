@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { 
   Upload, 
   AlertTriangle, 
@@ -48,6 +48,8 @@ export interface DatabricksManagerModalProps {
   qualityPassed: boolean;
   isLoading?: boolean;
   currentFilename?: string;
+  isAssistantSyncing?: boolean;
+  syncingFileName?: string | null;
   onUpload?: (override: boolean, customFilename: string) => void;
   onSuccess?: (filename: string) => void;
   onSyncStart?: (filename: string) => void;
@@ -62,6 +64,8 @@ export default function DatabricksManagerModal({
   qualityPassed,
   isLoading: externalLoading,
   currentFilename,
+  isAssistantSyncing = false,
+  syncingFileName = null,
   onUpload,
   onSuccess,
   onSyncStart,
@@ -83,14 +87,24 @@ export default function DatabricksManagerModal({
   const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Assistant Status
-  const [assistantSyncState, setAssistantSyncState] = useState<"UPDATED" | "UPDATING" | "UNKNOWN">("UNKNOWN");
+  const [assistantSyncState, setAssistantSyncState] = useState<"UPDATED" | "UPDATING" | "FAILED" | "UNKNOWN">("UNKNOWN");
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
   const [isManualSyncing, setIsManualSyncing] = useState(false);
 
   // File Directory State
   const [files, setFiles] = useState<{ path: string; file_size?: number }[]>([]);
   const [loadingFiles, setLoadingFiles] = useState(false);
-  const [notification, setNotification] = useState<{ message: string; type: "success" | "info" } | null>(null);
+  const [notification, setNotification] = useState<{ message: string; type: "success" | "info" | "error" } | null>(null);
+
+  // Check if current target filename matches an existing file in the volume
+  const existingFileMatch = useMemo(() => {
+    if (!customFilename) return null;
+    const normalized = formatFilename(customFilename).toLowerCase();
+    return files.find((f) => {
+      const name = (f.path.split("/").pop() || "").toLowerCase();
+      return name === normalized;
+    });
+  }, [customFilename, files]);
 
   // Delete & Undo State
   const [fileToDeleteConfirm, setFileToDeleteConfirm] = useState<{ path: string; name: string } | null>(null);
@@ -152,14 +166,19 @@ export default function DatabricksManagerModal({
     if (isOpen) {
       fetchFiles();
       setCustomFilename(formatFilename(currentFilename || title));
-      setUploadStage("idle");
+      if (isAssistantSyncing) {
+        setUploadStage("syncing");
+        setDeployedFilename(syncingFileName || formatFilename(currentFilename || title));
+      } else {
+        setUploadStage("idle");
+      }
       setUploadError(null);
       setSyncCountdown(5);
       setOverrideChecked(false);
       setFileToDeleteConfirm(null);
       setPendingDeletion(null);
     } else {
-      // Clean up timers on close
+      // Clean up modal-local timers on close (background polling remains active in parent page)
       if (syncTimerRef.current) clearInterval(syncTimerRef.current);
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
       if (deleteTimerRef.current) clearInterval(deleteTimerRef.current);
@@ -168,7 +187,15 @@ export default function DatabricksManagerModal({
         abortControllerRef.current = null;
       }
     }
-  }, [isOpen, title, currentFilename, fetchFiles]);
+  }, [isOpen, title, currentFilename, fetchFiles, isAssistantSyncing, syncingFileName]);
+
+  // Synchronize completion if background sync finishes while modal is open
+  useEffect(() => {
+    if (!isAssistantSyncing && uploadStage === "syncing") {
+      setUploadStage("synced");
+      setAssistantSyncState("UPDATED");
+    }
+  }, [isAssistantSyncing, uploadStage]);
 
   // Handle ESC key
   useEffect(() => {
@@ -187,49 +214,60 @@ export default function DatabricksManagerModal({
     return () => document.removeEventListener("keydown", handleEsc);
   }, [isOpen, fileToDeleteConfirm, uploadStage, onClose]);
 
-  // Polling helper for sync completion
+  // Polling helper for sync completion (resilient 15-minute polling window: 180 attempts * 5s = 900s)
   const pollSyncCompletion = useCallback((targetFileName?: string) => {
     if (pollTimerRef.current) clearInterval(pollTimerRef.current);
     
     let attempts = 0;
-    const maxAttempts = 40; // 40 * 3s = 120s max
+    const maxAttempts = 180; // 180 * 5s = 900s = 15 minutes
 
     pollTimerRef.current = setInterval(async () => {
       attempts++;
       const state = await fetchAssistantStatus();
       if (state === "UPDATED") {
         if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+        pollTimerRef.current = null;
         setUploadStage("synced");
         setIsManualSyncing(false);
+        setAssistantSyncState("UPDATED");
         const name = targetFileName || deployedFilename || customFilename || "File";
         setNotification({
           message: `${name} is synced with Knowledge Assistant.`,
           type: "success",
         });
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new Event("kb_databricks_updated"));
+          window.dispatchEvent(new CustomEvent("kb_assistant_synced", { detail: { state: "UPDATED" } }));
+        }
         if (onSyncComplete) {
           onSyncComplete(name);
         }
+      } else if (state === "FAILED") {
+        if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+        pollTimerRef.current = null;
+        setIsManualSyncing(false);
+        setAssistantSyncState("FAILED");
+        setNotification({
+          message: "Assistant vector index sync encountered an error in Databricks.",
+          type: "error",
+        });
       } else if (attempts >= maxAttempts) {
         if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+        pollTimerRef.current = null;
         setIsManualSyncing(false);
-        setUploadStage("synced");
-        const name = targetFileName || deployedFilename || customFilename || "File";
         setNotification({
-          message: `${name} is synced with Knowledge Assistant.`,
-          type: "success",
+          message: "Assistant sync is still running in background. Status will update automatically.",
+          type: "info",
         });
-        if (onSyncComplete) {
-          onSyncComplete(name);
-        }
       }
-    }, 3000);
+    }, 4000);
   }, [fetchAssistantStatus, deployedFilename, customFilename, onSyncComplete]);
 
   // Start Assistant Sync
-  const startAssistantSync = useCallback(async () => {
+  const startAssistantSync = useCallback(async (targetOverrideName?: string) => {
     setUploadStage("syncing");
     setAssistantSyncState("UPDATING");
-    const targetName = deployedFilename || customFilename || "File";
+    const targetName = targetOverrideName || deployedFilename || customFilename || "File";
     if (onSyncStart) {
       onSyncStart(targetName);
     }
@@ -245,8 +283,11 @@ export default function DatabricksManagerModal({
       pollSyncCompletion(targetName);
     } catch (err) {
       console.error("Assistant sync failed:", err);
-      setUploadError(err instanceof Error ? err.message : "Sync failed");
-      setUploadStage("error");
+      const errMsg = err instanceof Error ? err.message : "Sync failed";
+      if (!errMsg.includes("already")) {
+        setUploadError(errMsg);
+        setUploadStage("error");
+      }
     }
   }, [pollSyncCompletion, deployedFilename, customFilename, onSyncStart]);
 
@@ -254,12 +295,16 @@ export default function DatabricksManagerModal({
   const handleManualSync = async () => {
     setIsManualSyncing(true);
     setAssistantSyncState("UPDATING");
+    const targetName = "Knowledge Base";
+    if (onSyncStart) {
+      onSyncStart(targetName);
+    }
     try {
       await fetch("/api/databricks/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });
-      pollSyncCompletion();
+      pollSyncCompletion(targetName);
     } catch (err) {
       console.error("Manual sync failed:", err);
       setIsManualSyncing(false);
@@ -313,7 +358,7 @@ export default function DatabricksManagerModal({
         setSyncCountdown(count);
         if (count <= 0) {
           if (syncTimerRef.current) clearInterval(syncTimerRef.current);
-          startAssistantSync();
+          startAssistantSync(finalName);
         }
       }, 1000);
 
@@ -408,6 +453,9 @@ export default function DatabricksManagerModal({
         setTimeout(() => setNotification(null), 4000);
 
         setAssistantSyncState("UPDATING");
+        if (onSyncStart) {
+          onSyncStart("Deleted file");
+        }
         fetch("/api/databricks/sync", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -449,7 +497,7 @@ export default function DatabricksManagerModal({
                   className="flex items-center gap-1.5 text-xs select-none"
                   title={lastSyncTime ? `Last indexed at ${lastSyncTime}` : "Assistant status"}
                 >
-                  {assistantSyncState === "UPDATING" || isManualSyncing ? (
+                  {assistantSyncState === "UPDATING" || isManualSyncing || isAssistantSyncing ? (
                     <>
                       <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
                       <span className="text-[11px] text-slate-500 font-medium">Syncing assistant...</span>
@@ -529,11 +577,11 @@ export default function DatabricksManagerModal({
           {activeTab === "files" && (
             <button
               onClick={handleManualSync}
-              disabled={isManualSyncing || assistantSyncState === "UPDATING"}
+              disabled={isManualSyncing || assistantSyncState === "UPDATING" || isAssistantSyncing}
               className="mb-1.5 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium text-slate-600 hover:text-blue-600 hover:bg-blue-50 border border-slate-200 transition-colors disabled:opacity-50"
               title="Trigger Knowledge Assistant vector index sync"
             >
-              <RefreshCw className={`w-3 h-3 ${isManualSyncing || assistantSyncState === "UPDATING" ? "animate-spin" : ""}`} />
+              <RefreshCw className={`w-3 h-3 ${isManualSyncing || assistantSyncState === "UPDATING" || isAssistantSyncing ? "animate-spin" : ""}`} />
               <span>Sync Assistant</span>
             </button>
           )}
@@ -546,9 +594,17 @@ export default function DatabricksManagerModal({
               
               {/* Form Input: Always accessible or clearly state-aware */}
               <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1.5">
-                  Target Filename (.md)
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-medium text-slate-700">
+                    Target Filename (.md)
+                  </label>
+                  {existingFileMatch && (
+                    <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200/80 inline-flex items-center gap-1 animate-in fade-in duration-150">
+                      <RefreshCw className="w-2.5 h-2.5 text-blue-600" />
+                      Replaces existing file
+                    </span>
+                  )}
+                </div>
                 <input
                   type="text"
                   value={customFilename}
@@ -560,6 +616,21 @@ export default function DatabricksManagerModal({
                   Prefix KB_ will automatically be standardized if omitted.
                 </p>
               </div>
+
+              {/* Informative Overwrite Reassurance Banner */}
+              {existingFileMatch && uploadStage === "idle" && (
+                <div className="rounded-xl p-3 bg-blue-50/70 border border-blue-200/80 flex items-start gap-2.5 text-xs text-blue-900 animate-in fade-in duration-150">
+                  <Info className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
+                  <div className="space-y-0.5">
+                    <p className="font-semibold text-blue-950">
+                      Updating Existing Knowledge Base
+                    </p>
+                    <p className="text-[11px] text-blue-800 leading-relaxed">
+                      <span className="font-mono font-medium text-blue-950">{formatFilename(customFilename)}</span> already exists in this Databricks volume. Deploying will replace it with this version and re-index the Knowledge Assistant.
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {!qualityPassed && uploadStage === "idle" && (
                 <div className="rounded-xl p-3.5 bg-amber-50 border border-amber-200/80 flex items-start gap-2.5">
@@ -601,8 +672,16 @@ export default function DatabricksManagerModal({
                         : "linear-gradient(135deg, #2563eb, #4f46e5)",
                     }}
                   >
-                    <Upload className="w-3.5 h-3.5" />
-                    <span>Deploy to Databricks Volume</span>
+                    {existingFileMatch ? (
+                      <RefreshCw className="w-3.5 h-3.5" />
+                    ) : (
+                      <Upload className="w-3.5 h-3.5" />
+                    )}
+                    <span>
+                      {existingFileMatch
+                        ? "Replace & Update in Databricks"
+                        : "Deploy to Databricks Volume"}
+                    </span>
                   </button>
                 </div>
               )}
@@ -642,11 +721,14 @@ export default function DatabricksManagerModal({
                     {deployedFilename}
                   </p>
                   <p className="text-[11px] text-slate-400 leading-relaxed">
-                    Auto-sync will start in {syncCountdown}s. Syncing takes a while (typically 1–2 minutes), and a notification will appear once it&apos;s done.
+                    Auto-sync starts in {syncCountdown}s. Assistant indexing runs in the background (typically 1–2 minutes). You can safely close this modal anytime.
                   </p>
                   <div className="flex items-center gap-2 pt-1 border-t border-slate-100">
                     <button
-                      onClick={startAssistantSync}
+                      onClick={() => {
+                        if (syncTimerRef.current) clearInterval(syncTimerRef.current);
+                        startAssistantSync(deployedFilename);
+                      }}
                       className="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 transition-colors shadow-2xs flex items-center gap-1.5"
                     >
                       <RefreshCw className="w-3 h-3" />
@@ -658,6 +740,12 @@ export default function DatabricksManagerModal({
                     >
                       Skip Sync
                     </button>
+                    <button
+                      onClick={onClose}
+                      className="ml-auto px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-900 transition-colors"
+                    >
+                      Close & Continue
+                    </button>
                   </div>
                 </div>
               )}
@@ -667,19 +755,20 @@ export default function DatabricksManagerModal({
                 <div className="rounded-xl p-3.5 bg-white border border-slate-200/90 shadow-2xs space-y-2.5 animate-in fade-in duration-150">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-xs font-medium text-slate-900">
-                      <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-                      <span>File uploaded. Syncing Knowledge Assistant...</span>
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      <span>File saved to volume. Syncing Assistant...</span>
                     </div>
+                    <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
                   </div>
                   <p className="text-[11px] text-slate-500 font-mono truncate">
                     {deployedFilename}
                   </p>
-                  <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-100 text-[11px] text-slate-600 space-y-1">
-                    <p className="font-medium text-slate-700">
-                      Syncing takes a while (typically 1–2 minutes).
+                  <div className="p-2.5 rounded-lg bg-blue-50/60 border border-blue-100/80 text-[11px] text-slate-600 space-y-1">
+                    <p className="font-medium text-slate-800">
+                      Syncing takes ~1–2 minutes on Databricks.
                     </p>
                     <p className="text-slate-500 leading-relaxed">
-                      You can safely close this modal or continue working. A notification will appear once it&apos;s done.
+                      Your document is already saved in storage. You do not need to wait — you can safely close this modal or continue working. A notification will appear once vector search indexing completes.
                     </p>
                   </div>
                   <div className="flex items-center gap-2 pt-1 border-t border-slate-100">
@@ -692,9 +781,9 @@ export default function DatabricksManagerModal({
                     </button>
                     <button
                       onClick={onClose}
-                      className="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-slate-900 hover:bg-slate-800 transition-colors shadow-2xs"
+                      className="px-3.5 py-1.5 rounded-lg text-xs font-medium text-white bg-slate-900 hover:bg-slate-800 transition-colors shadow-2xs"
                     >
-                      Done
+                      Close & Continue
                     </button>
                   </div>
                 </div>
@@ -740,7 +829,7 @@ export default function DatabricksManagerModal({
                   </p>
                   <div className="flex items-center gap-2 pt-1 border-t border-slate-100">
                     <button
-                      onClick={startAssistantSync}
+                      onClick={() => startAssistantSync()}
                       className="px-3 py-1.5 rounded-lg text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200/60 transition-colors flex items-center gap-1.5"
                     >
                       <RefreshCw className="w-3 h-3" />
@@ -857,9 +946,12 @@ export default function DatabricksManagerModal({
                             : "hover:bg-slate-50"
                         }`}
                       >
-                        <div className="flex items-center gap-2 min-w-0 pr-2">
+                        <div className="flex items-center gap-2 min-w-0 flex-1 pr-2">
                           <FileText className={`w-3.5 h-3.5 flex-shrink-0 ${isPending ? "text-slate-400" : "text-slate-400"}`} />
-                          <span className={`font-mono truncate ${isPending ? "line-through text-slate-400" : "text-slate-800"}`}>
+                          <span
+                            className={`font-mono truncate min-w-0 flex-1 ${isPending ? "line-through text-slate-400" : "text-slate-800"}`}
+                            title={fileName}
+                          >
                             {fileName}
                           </span>
                           {file.file_size && (
@@ -874,23 +966,25 @@ export default function DatabricksManagerModal({
                           )}
                         </div>
 
-                        {!isPending ? (
-                          <button
-                            onClick={() => promptDeleteConfirmation(file.path)}
-                            className="p-1 text-slate-400 hover:text-red-600 rounded transition-colors"
-                            title="Delete File"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        ) : (
-                          <button
-                            onClick={handleUndoDelete}
-                            className="p-1 text-blue-600 hover:text-blue-800 rounded transition-colors"
-                            title="Reinstate File"
-                          >
-                            <RotateCcw className="w-3.5 h-3.5" />
-                          </button>
-                        )}
+                        <div className="flex items-center space-x-1 flex-shrink-0">
+                          {!isPending ? (
+                            <button
+                              onClick={() => promptDeleteConfirmation(file.path)}
+                              className="p-1 text-slate-400 hover:text-red-600 rounded transition-colors"
+                              title="Delete File"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          ) : (
+                            <button
+                              onClick={handleUndoDelete}
+                              className="p-1 text-blue-600 hover:text-blue-800 rounded transition-colors"
+                              title="Reinstate File"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
                       </div>
                     );
                   })}

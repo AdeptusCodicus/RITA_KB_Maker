@@ -2,6 +2,7 @@ export interface DatabricksFile {
   path: string;
   is_dir: boolean;
   file_size?: number;
+  last_modified?: number;
   object_id?: number;
 }
 
@@ -47,10 +48,41 @@ export async function listFiles(path: string): Promise<DatabricksFile[]> {
     return (data.contents || []).map((f: any) => ({
       path: f.path,
       is_dir: f.is_directory,
-      file_size: f.file_size
+      file_size: f.file_size,
+      last_modified: f.last_modified
     }));
   }
   return data.objects || [];
+}
+
+export async function readFile(path: string): Promise<string> {
+  const host = getHost();
+  const isVolume = path.startsWith("/Volumes/");
+
+  if (isVolume) {
+    const res = await fetch(`${host}/api/2.0/fs/files${path}`, {
+      method: "GET",
+      headers: {
+        "Authorization": `Bearer ${process.env.DATABRICKS_TOKEN}`,
+      },
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to read file from Databricks volume: ${await res.text()}`);
+    }
+    return await res.text();
+  } else {
+    const res = await fetch(`${host}/api/2.0/workspace/export?path=${encodeURIComponent(path)}&format=SOURCE`, {
+      method: "GET",
+      headers: getAuthHeaders(),
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to read file from Databricks workspace: ${await res.text()}`);
+    }
+    const data = await res.json();
+    return Buffer.from(data.content, 'base64').toString('utf-8');
+  }
 }
 
 export async function uploadFile(path: string, content: string, overwrite: boolean = true) {

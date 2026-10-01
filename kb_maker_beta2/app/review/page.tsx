@@ -256,10 +256,83 @@ export default function ReviewPage() {
     setAuditError((prev) => (prev ? { ...prev, retryCountdown: null } : null));
   }, []);
 
+  // Persistent Background Databricks Assistant Sync Tracker
+  const [bgSyncState, setBgSyncState] = useState<{
+    isSyncing: boolean;
+    syncedFileName: string | null;
+  }>({ isSyncing: false, syncedFileName: null });
+  const bgSyncTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const startBackgroundSyncPolling = useCallback((targetName: string) => {
+    if (bgSyncTimerRef.current) clearInterval(bgSyncTimerRef.current);
+
+    setBgSyncState({ isSyncing: true, syncedFileName: targetName });
+    setToast({
+      message: `Assistant indexing started for ${targetName}. Running in background...`,
+      type: "info",
+    });
+
+    let attempts = 0;
+    const maxAttempts = 180; // 180 * 5s = 900s = 15 minutes
+
+    bgSyncTimerRef.current = setInterval(async () => {
+      attempts++;
+      try {
+        const res = await fetch(`/api/databricks/sync?_t=${Date.now()}`, {
+          cache: "no-store",
+          headers: { "Cache-Control": "no-cache", "Pragma": "no-cache" },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const state = data.state;
+          if (state === "UPDATED") {
+            if (bgSyncTimerRef.current) clearInterval(bgSyncTimerRef.current);
+            bgSyncTimerRef.current = null;
+            setBgSyncState({ isSyncing: false, syncedFileName: null });
+            setToast({
+              message: `${targetName} is indexed & live in Knowledge Assistant!`,
+              type: "success",
+            });
+            if (typeof window !== "undefined") {
+              window.dispatchEvent(new Event("kb_databricks_updated"));
+              window.dispatchEvent(new CustomEvent("kb_assistant_synced", { detail: { state: "UPDATED" } }));
+            }
+            return;
+          }
+          if (state === "FAILED") {
+            if (bgSyncTimerRef.current) clearInterval(bgSyncTimerRef.current);
+            bgSyncTimerRef.current = null;
+            setBgSyncState({ isSyncing: false, syncedFileName: null });
+            setToast({
+              message: `Assistant indexing failed for ${targetName} in Databricks.`,
+              type: "error",
+            });
+            return;
+          }
+        }
+      } catch (err) {
+        console.error("Background sync check error:", err);
+      }
+
+      if (attempts >= maxAttempts) {
+        if (bgSyncTimerRef.current) clearInterval(bgSyncTimerRef.current);
+        bgSyncTimerRef.current = null;
+        setBgSyncState({ isSyncing: false, syncedFileName: null });
+        setToast({
+          message: `Assistant sync is still processing in background for ${targetName}.`,
+          type: "info",
+        });
+      }
+    }, 5000);
+  }, []);
+
   useEffect(() => {
     return () => {
       if (auditCountdownRef.current) {
         clearInterval(auditCountdownRef.current);
+      }
+      if (bgSyncTimerRef.current) {
+        clearInterval(bgSyncTimerRef.current);
       }
     };
   }, []);
@@ -857,6 +930,9 @@ export default function ReviewPage() {
               <Upload className="w-3.5 h-3.5" />
               <span className="hidden md:inline">Upload to</span>
               <span>Databricks</span>
+              {bgSyncState.isSyncing && (
+                <span className="w-2 h-2 rounded-full bg-sky-300 animate-pulse ml-0.5" title="Assistant syncing in background" />
+              )}
             </button>
 
             {/* Exit Workbench Button */}
@@ -1293,6 +1369,8 @@ export default function ReviewPage() {
         title={kbTitle}
         qualityPassed={qualityReport?.passed ?? true}
         currentFilename={filename}
+        isAssistantSyncing={bgSyncState.isSyncing}
+        syncingFileName={bgSyncState.syncedFileName}
         onSuccess={(uploadedName) => {
           setToast({
             message: `Successfully uploaded ${uploadedName} to Databricks Volume!`,
@@ -1300,19 +1378,13 @@ export default function ReviewPage() {
           });
           setTimeout(() => setToast(null), 5000);
         }}
-        onSyncStart={(syncedName) => {
-          setToast({
-            message: `Assistant is syncing ${syncedName} in background. A notification will appear once it's done.`,
-            type: "info",
-          });
-          setTimeout(() => setToast(null), 6000);
-        }}
+        onSyncStart={startBackgroundSyncPolling}
         onSyncComplete={(syncedName) => {
           setToast({
             message: `${syncedName} is synced with Knowledge Assistant.`,
             type: "success",
           });
-          setTimeout(() => setToast(null), 5000);
+          setTimeout(() => setToast(null), 6000);
         }}
       />
 

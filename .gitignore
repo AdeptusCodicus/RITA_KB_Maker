@@ -18,3 +18,5 @@ deploy-cloudrun.sh
 .DS_Store
 **/.DS_Store
 *.pem
+
+AGENTS.md

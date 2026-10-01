@@ -53,10 +53,30 @@ export async function POST(request: Request) {
       // Body is optional
     }
 
-    const result = await syncKnowledgeSources(assistantId);
+    const config = getKbConfig();
+    const effectiveAssistantId = assistantId || config.assistantId;
+
+    // Check if assistant is already updating
+    try {
+      const { primarySource } = await getKnowledgeSources(effectiveAssistantId);
+      if (primarySource?.state === "UPDATING") {
+        return NextResponse.json({
+          success: true,
+          state: "UPDATING",
+          alreadyUpdating: true,
+          assistantId: effectiveAssistantId,
+          message: "Assistant sync is already in progress",
+        });
+      }
+    } catch (checkErr) {
+      console.warn("Could not check pre-sync status, proceeding with sync:", checkErr);
+    }
+
+    const result = await syncKnowledgeSources(effectiveAssistantId);
     return NextResponse.json({
       success: true,
       state: "UPDATING",
+      alreadyUpdating: false,
       assistantId: result.assistantId,
       message: "Knowledge assistant sync initiated",
     });

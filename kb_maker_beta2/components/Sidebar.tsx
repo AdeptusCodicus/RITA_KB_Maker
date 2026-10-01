@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   Sparkles,
@@ -11,7 +11,8 @@ import {
   Layers,
   Search,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  BookOpen
 } from 'lucide-react';
 import { getAllDrafts, deleteDraft, getActiveDraftId, setActiveDraftId } from '@/lib/drafts';
 import type { KBDraft } from '@/types/kb';
@@ -40,6 +41,10 @@ export default function Sidebar() {
   const [activeDraftId, setActiveId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [shortcutLabel, setShortcutLabel] = useState('⌘N');
+  const [kbFileCount, setKbFileCount] = useState<number | null>(null);
+  const [kbSyncState, setKbSyncState] = useState<string>('UNKNOWN');
+  const [kbVolumePath, setKbVolumePath] = useState<string>('');
+  const syncPollTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // OS detection for keyboard shortcut display (⌘N for macOS, Ctrl+N for Windows/Linux)
   useEffect(() => {
@@ -76,27 +81,126 @@ export default function Sidebar() {
     setActiveId(getActiveDraftId());
   }, []);
 
+  const startSyncPolling = useCallback(() => {
+    if (syncPollTimerRef.current) clearInterval(syncPollTimerRef.current);
+
+    let attempts = 0;
+    const maxAttempts = 180; // 180 * 5s = 900s = 15 minutes
+
+    syncPollTimerRef.current = setInterval(async () => {
+      attempts++;
+      try {
+        const syncRes = await fetch(`/api/databricks/sync?_t=${Date.now()}`, {
+          cache: 'no-store',
+        });
+        if (syncRes.ok) {
+          const syncData = await syncRes.json();
+          if (syncData.state) {
+            setKbSyncState(syncData.state);
+            if (syncData.state === 'UPDATED') {
+              if (syncPollTimerRef.current) clearInterval(syncPollTimerRef.current);
+              syncPollTimerRef.current = null;
+              // Refresh files count
+              fetch(`/api/databricks?_t=${Date.now()}`, { cache: 'no-store' })
+                .then((r) => r.json())
+                .then((d) => {
+                  if (Array.isArray(d.files)) setKbFileCount(d.files.length);
+                })
+                .catch(() => {});
+              return;
+            }
+          }
+        }
+      } catch {
+        // non-blocking
+      }
+
+      if (attempts >= maxAttempts) {
+        if (syncPollTimerRef.current) clearInterval(syncPollTimerRef.current);
+        syncPollTimerRef.current = null;
+      }
+    }, 5000);
+  }, []);
+
+  const refreshDatabricksStatus = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/databricks?_t=${Date.now()}`, {
+        cache: 'no-store',
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.files)) {
+          setKbFileCount(data.files.length);
+        }
+        if (data.kbPath) {
+          setKbVolumePath(data.kbPath);
+        }
+      }
+      const syncRes = await fetch(`/api/databricks/sync?_t=${Date.now()}`, {
+        cache: 'no-store',
+      });
+      if (syncRes.ok) {
+        const syncData = await syncRes.json();
+        if (syncData.state) {
+          setKbSyncState(syncData.state);
+          if (syncData.state === 'UPDATING') {
+            startSyncPolling();
+          } else if (syncPollTimerRef.current) {
+            clearInterval(syncPollTimerRef.current);
+            syncPollTimerRef.current = null;
+          }
+        }
+      }
+    } catch {
+      // non-blocking
+    }
+  }, [startSyncPolling]);
+
   useEffect(() => {
     refreshDrafts();
+    refreshDatabricksStatus();
+
+    const handleAssistantSynced = () => {
+      setKbSyncState('UPDATED');
+      if (syncPollTimerRef.current) {
+        clearInterval(syncPollTimerRef.current);
+        syncPollTimerRef.current = null;
+      }
+      refreshDatabricksStatus();
+    };
+
     window.addEventListener('kb_drafts_updated', refreshDrafts);
     window.addEventListener('storage', refreshDrafts);
+    window.addEventListener('kb_databricks_updated', refreshDatabricksStatus);
+    window.addEventListener('kb_assistant_synced', handleAssistantSynced);
+
     return () => {
       window.removeEventListener('kb_drafts_updated', refreshDrafts);
       window.removeEventListener('storage', refreshDrafts);
+      window.removeEventListener('kb_databricks_updated', refreshDatabricksStatus);
+      window.removeEventListener('kb_assistant_synced', handleAssistantSynced);
+      if (syncPollTimerRef.current) {
+        clearInterval(syncPollTimerRef.current);
+        syncPollTimerRef.current = null;
+      }
     };
-  }, [refreshDrafts]);
+  }, [refreshDrafts, refreshDatabricksStatus]);
 
-  // Global keyboard shortcut for New KB (Cmd+N on Mac, Ctrl+N on Windows/Linux)
+  // Global keyboard shortcuts (Cmd+N for New KB, Cmd+K for Current KB)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'n') {
         e.preventDefault();
         handleNewKB();
       }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        router.push('/kb');
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [router]);
 
   const handleNewKB = () => {
     setActiveDraftId(null);
@@ -139,6 +243,7 @@ export default function Sidebar() {
   });
 
   const isNewKBActive = pathname === '/';
+  const isKBActive = pathname === '/kb';
 
   return (
     <aside className="h-screen w-64 bg-[#090d16] text-slate-400 flex flex-col border-r border-[#1a2234] flex-shrink-0 select-none">
@@ -162,8 +267,8 @@ export default function Sidebar() {
         </span>
       </div>
 
-      {/* Primary Action: New Knowledge Base (Highlighted when active) */}
-      <div className="px-3 pt-3 pb-2">
+      {/* Primary Actions: New Knowledge Base & Current Knowledge Base */}
+      <div className="px-3 pt-3 pb-2 space-y-1.5">
         <button
           onClick={handleNewKB}
           className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all border shadow-xs group ${
@@ -199,6 +304,52 @@ export default function Sidebar() {
           >
             {shortcutLabel}
           </kbd>
+        </button>
+
+        <button
+          onClick={() => router.push('/kb')}
+          className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all border group ${
+            isKBActive
+              ? 'bg-blue-950/50 text-blue-200 border-blue-500/50 ring-1 ring-blue-500/30 shadow-xs'
+              : 'bg-[#101728]/80 hover:bg-[#152038] active:bg-[#0c1220] text-slate-300 hover:text-white border-[#1c273e] hover:border-slate-600/60'
+          }`}
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div
+              className={`w-5 h-5 rounded-md flex items-center justify-center transition-all flex-shrink-0 ${
+                isKBActive
+                  ? 'bg-blue-600/40 text-blue-300 border border-blue-400/40'
+                  : 'bg-slate-800/80 text-slate-400 border border-slate-700/60 group-hover:text-blue-300 group-hover:bg-blue-950/60 group-hover:border-blue-700/40'
+              }`}
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+            </div>
+            <span
+              className={`tracking-tight truncate ${
+                isKBActive ? 'text-white font-semibold' : 'text-slate-200 group-hover:text-white'
+              }`}
+            >
+              Current Knowledge Base
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            {kbFileCount !== null && (
+              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-800 text-slate-300 font-mono font-medium">
+                {kbFileCount}
+              </span>
+            )}
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${
+                kbSyncState === 'UPDATING'
+                  ? 'bg-blue-400 animate-pulse'
+                  : kbSyncState === 'UPDATED'
+                  ? 'bg-emerald-400'
+                  : 'bg-slate-500'
+              }`}
+              title={kbSyncState === 'UPDATING' ? 'Assistant indexing in progress' : 'Assistant synchronized'}
+            />
+          </div>
         </button>
       </div>
 
@@ -260,10 +411,10 @@ export default function Sidebar() {
                       : 'border-transparent text-slate-400 hover:bg-[#131b2e] hover:text-slate-200'
                   }`}
                 >
-                  <div className="flex items-start space-x-2 min-w-0 pr-2">
+                  <div className="flex items-start space-x-2 min-w-0 flex-1 pr-2">
                     <FileText className={`w-3.5 h-3.5 mt-0.5 flex-shrink-0 ${isSelected ? 'text-blue-400' : 'text-slate-500 group-hover:text-slate-400'}`} />
-                    <div className="min-w-0">
-                      <p className="truncate font-medium text-xs text-slate-200 group-hover:text-white leading-tight">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium text-xs text-slate-200 group-hover:text-white leading-tight" title={draft.title || draft.filename}>
                         {draft.title || draft.filename || 'Untitled Knowledge Base'}
                       </p>
                       <div className="flex items-center gap-1.5 mt-1">
@@ -305,19 +456,32 @@ export default function Sidebar() {
       </div>
 
       {/* Target Destination & Status Footer */}
-      <div className="p-3 border-t border-[#1a2234] bg-[#070a11]">
-        <div className="flex items-center space-x-2.5 px-2.5 py-2 rounded-xl bg-[#0e1422] border border-[#1a2234]">
+      <div
+        onClick={() => router.push('/kb')}
+        className="p-3 border-t border-[#1a2234] bg-[#070a11] cursor-pointer hover:bg-[#0c1220] transition-colors"
+        title="View Live Databricks Knowledge Base"
+      >
+        <div className="flex items-center space-x-2.5 px-2.5 py-2 rounded-xl bg-[#0e1422] border border-[#1a2234] hover:border-slate-700/80 transition-colors">
           <Database className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
           <div className="min-w-0 flex-1">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-medium text-slate-300">Databricks Volume</span>
               <span className="flex h-1.5 w-1.5 relative">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+                {kbSyncState === 'UPDATING' ? (
+                  <>
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-blue-500"></span>
+                  </>
+                ) : (
+                  <>
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+                  </>
+                )}
               </span>
             </div>
             <p className="text-[9px] text-slate-500 truncate font-mono mt-0.5">
-              /Volumes/kb-prod/rita
+              {kbVolumePath || '/Volumes/agents/default/knowledge_base/google_ai_assistant'}
             </p>
           </div>
         </div>
