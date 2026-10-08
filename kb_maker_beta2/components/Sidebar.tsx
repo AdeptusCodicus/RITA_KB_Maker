@@ -12,9 +12,18 @@ import {
   Search,
   CheckCircle2,
   AlertCircle,
-  BookOpen
+  BookOpen,
+  Users,
+  History,
+  Building2,
+  LogOut,
+  Shield,
+  ShieldCheck,
+  Edit3,
+  Eye,
 } from 'lucide-react';
 import { getAllDrafts, deleteDraft, getActiveDraftId, setActiveDraftId } from '@/lib/drafts';
+import { useAuth } from '@/components/AuthProvider';
 import type { KBDraft } from '@/types/kb';
 
 function formatRelativeTime(dateStr: string): string {
@@ -37,6 +46,7 @@ function formatRelativeTime(dateStr: string): string {
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
+  const { session, role, isSuperadmin, switchDevEmail } = useAuth();
   const [drafts, setDrafts] = useState<KBDraft[]>([]);
   const [activeDraftId, setActiveId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -46,33 +56,22 @@ export default function Sidebar() {
   const [kbVolumePath, setKbVolumePath] = useState<string>('');
   const syncPollTimerRef = useRef<NodeJS.Timeout | null>(null);
 
+  const canCreate = isSuperadmin || role === 'admin' || role === 'editor';
+  const canViewLogs = isSuperadmin || role === 'admin';
+
   // OS detection for keyboard shortcut display (⌘N for macOS, Ctrl+N for Windows/Linux)
   useEffect(() => {
     if (typeof window === 'undefined' || typeof navigator === 'undefined') return;
 
     const ua = navigator.userAgent || '';
-    // Prioritize userAgent check (properly responds to DevTools UA switching and real Windows/Linux)
     if (/Windows|Win32|Win64|Linux|X11|Android/i.test(ua)) {
       setShortcutLabel('Ctrl+N');
       return;
     }
-
     if (/Macintosh|Mac OS X|iPhone|iPad|iPod/i.test(ua)) {
       setShortcutLabel('⌘N');
       return;
     }
-
-    // Fallback to platform if userAgent didn't match
-    const platform = (navigator as any).platform || '';
-    if (/Win|Linux/i.test(platform)) {
-      setShortcutLabel('Ctrl+N');
-      return;
-    }
-    if (/Mac/i.test(platform)) {
-      setShortcutLabel('⌘N');
-      return;
-    }
-
     setShortcutLabel('Ctrl+N');
   }, []);
 
@@ -85,7 +84,7 @@ export default function Sidebar() {
     if (syncPollTimerRef.current) clearInterval(syncPollTimerRef.current);
 
     let attempts = 0;
-    const maxAttempts = 180; // 180 * 5s = 900s = 15 minutes
+    const maxAttempts = 180;
 
     syncPollTimerRef.current = setInterval(async () => {
       attempts++;
@@ -100,7 +99,6 @@ export default function Sidebar() {
             if (syncData.state === 'UPDATED') {
               if (syncPollTimerRef.current) clearInterval(syncPollTimerRef.current);
               syncPollTimerRef.current = null;
-              // Refresh files count
               fetch(`/api/databricks?_t=${Date.now()}`, { cache: 'no-store' })
                 .then((r) => r.json())
                 .then((d) => {
@@ -186,10 +184,10 @@ export default function Sidebar() {
     };
   }, [refreshDrafts, refreshDatabricksStatus]);
 
-  // Global keyboard shortcuts (Cmd+N for New KB, Cmd+K for Current KB)
+  // Keyboard shortcut listener
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'n') {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'n' && canCreate) {
         e.preventDefault();
         handleNewKB();
       }
@@ -200,7 +198,7 @@ export default function Sidebar() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [router]);
+  }, [router, canCreate]);
 
   const handleNewKB = () => {
     setActiveDraftId(null);
@@ -243,7 +241,11 @@ export default function Sidebar() {
   });
 
   const isNewKBActive = pathname === '/';
-  const isKBActive = pathname === '/kb';
+  const isAllKBActive = pathname === '/kb';
+  const isTeamKBsActive = pathname === '/team/kbs';
+  const isTeamMembersActive = pathname === '/team/members';
+  const isLogsActive = pathname === '/team/logs';
+  const isOrgActive = pathname === '/admin/org';
 
   return (
     <aside className="h-screen w-64 bg-[#090d16] text-slate-400 flex flex-col border-r border-[#1a2234] flex-shrink-0 select-none">
@@ -267,75 +269,54 @@ export default function Sidebar() {
         </span>
       </div>
 
-      {/* Primary Actions: New Knowledge Base & Current Knowledge Base */}
-      <div className="px-3 pt-3 pb-2 space-y-1.5">
-        <button
-          onClick={handleNewKB}
-          className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all border shadow-xs group ${
-            isNewKBActive
-              ? 'bg-blue-950/60 text-white border-blue-500/50 ring-1 ring-blue-500/30 shadow-blue-950/40'
-              : 'bg-[#131b2e] hover:bg-[#19243b] active:bg-[#0f1624] text-slate-200 hover:text-white border-[#22314d] hover:border-blue-500/40'
-          }`}
-        >
-          <div className="flex items-center gap-2.5">
-            <div
-              className={`w-5 h-5 rounded-md flex items-center justify-center transition-all flex-shrink-0 ${
-                isNewKBActive
-                  ? 'bg-blue-600 text-white border border-blue-400/50 shadow-xs'
-                  : 'bg-blue-500/20 text-blue-400 border border-blue-500/30 group-hover:bg-blue-600 group-hover:text-white group-hover:border-blue-600'
-              }`}
-            >
-              <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-            </div>
-            <span
-              className={`font-semibold tracking-tight ${
-                isNewKBActive ? 'text-white' : 'text-slate-100 group-hover:text-white'
-              }`}
-            >
-              New Knowledge Base
-            </span>
-          </div>
-          <kbd
-            className={`text-[10px] font-mono px-1.5 py-0.5 rounded border transition-colors ${
+      {/* Primary Actions */}
+      <div className="px-3 pt-3 pb-2 space-y-1">
+        {canCreate && (
+          <button
+            onClick={handleNewKB}
+            className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all border shadow-xs group ${
               isNewKBActive
-                ? 'text-blue-300 bg-blue-900/40 border-blue-500/40'
-                : 'text-slate-400 group-hover:text-slate-200 bg-[#090d16] border-[#22314d]'
+                ? 'bg-blue-950/60 text-white border-blue-500/50 ring-1 ring-blue-500/30'
+                : 'bg-[#131b2e] hover:bg-[#19243b] text-slate-200 hover:text-white border-[#22314d] hover:border-blue-500/40'
             }`}
           >
-            {shortcutLabel}
-          </kbd>
-        </button>
+            <div className="flex items-center gap-2.5">
+              <div
+                className={`w-5 h-5 rounded-md flex items-center justify-center transition-all flex-shrink-0 ${
+                  isNewKBActive
+                    ? 'bg-blue-600 text-white border border-blue-400/50'
+                    : 'bg-blue-500/20 text-blue-400 border border-blue-500/30 group-hover:bg-blue-600 group-hover:text-white'
+                }`}
+              >
+                <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+              </div>
+              <span className="font-semibold tracking-tight">New Knowledge Base</span>
+            </div>
+            <kbd className="text-[10px] font-mono px-1.5 py-0.5 rounded border text-slate-400 bg-[#090d16] border-[#22314d]">
+              {shortcutLabel}
+            </kbd>
+          </button>
+        )}
 
+        {/* All Knowledge Bases (Shared Volume) */}
         <button
           onClick={() => router.push('/kb')}
-          className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all border group ${
-            isKBActive
-              ? 'bg-blue-950/50 text-blue-200 border-blue-500/50 ring-1 ring-blue-500/30 shadow-xs'
-              : 'bg-[#101728]/80 hover:bg-[#152038] active:bg-[#0c1220] text-slate-300 hover:text-white border-[#1c273e] hover:border-slate-600/60'
+          className={`w-full flex items-center justify-between px-3 py-1.5 rounded-xl text-xs font-medium transition-all border group ${
+            isAllKBActive
+              ? 'bg-blue-950/50 text-blue-200 border-blue-500/50 ring-1 ring-blue-500/30'
+              : 'bg-[#101728]/80 hover:bg-[#152038] text-slate-300 hover:text-white border-[#1c273e]'
           }`}
         >
           <div className="flex items-center gap-2.5 min-w-0">
-            <div
-              className={`w-5 h-5 rounded-md flex items-center justify-center transition-all flex-shrink-0 ${
-                isKBActive
-                  ? 'bg-blue-600/40 text-blue-300 border border-blue-400/40'
-                  : 'bg-slate-800/80 text-slate-400 border border-slate-700/60 group-hover:text-blue-300 group-hover:bg-blue-950/60 group-hover:border-blue-700/40'
-              }`}
-            >
+            <div className="w-5 h-5 rounded-md flex items-center justify-center bg-slate-800 text-slate-400 border border-slate-700/60 flex-shrink-0">
               <BookOpen className="w-3.5 h-3.5" />
             </div>
-            <span
-              className={`tracking-tight truncate ${
-                isKBActive ? 'text-white font-semibold' : 'text-slate-200 group-hover:text-white'
-              }`}
-            >
-              Current Knowledge Base
-            </span>
+            <span className="tracking-tight truncate font-medium">All Knowledge Bases</span>
           </div>
 
           <div className="flex items-center gap-1.5 flex-shrink-0">
             {kbFileCount !== null && (
-              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-800 text-slate-300 font-mono font-medium">
+              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-800 text-slate-300 font-mono">
                 {kbFileCount}
               </span>
             )}
@@ -347,15 +328,89 @@ export default function Sidebar() {
                   ? 'bg-emerald-400'
                   : 'bg-slate-500'
               }`}
-              title={kbSyncState === 'UPDATING' ? 'Assistant indexing in progress' : 'Assistant synchronized'}
             />
           </div>
         </button>
+
+        {/* Team Knowledge Base (Team Content Panel) */}
+        <button
+          onClick={() => router.push('/team/kbs')}
+          className={`w-full flex items-center justify-between px-3 py-1.5 rounded-xl text-xs font-medium transition-all border group ${
+            isTeamKBsActive
+              ? 'bg-blue-950/50 text-blue-200 border-blue-500/50 ring-1 ring-blue-500/30'
+              : 'bg-[#101728]/80 hover:bg-[#152038] text-slate-300 hover:text-white border-[#1c273e]'
+          }`}
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-5 h-5 rounded-md flex items-center justify-center bg-slate-800 text-slate-400 border border-slate-700/60 flex-shrink-0">
+              <FileText className="w-3.5 h-3.5" />
+            </div>
+            <span className="tracking-tight truncate font-medium">Team Knowledge Base</span>
+          </div>
+        </button>
+
+        {/* Team Members */}
+        <button
+          onClick={() => router.push('/team/members')}
+          className={`w-full flex items-center justify-between px-3 py-1.5 rounded-xl text-xs font-medium transition-all border group ${
+            isTeamMembersActive
+              ? 'bg-blue-950/50 text-blue-200 border-blue-500/50 ring-1 ring-blue-500/30'
+              : 'bg-[#101728]/80 hover:bg-[#152038] text-slate-300 hover:text-white border-[#1c273e]'
+          }`}
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-5 h-5 rounded-md flex items-center justify-center bg-slate-800 text-slate-400 border border-slate-700/60 flex-shrink-0">
+              <Users className="w-3.5 h-3.5" />
+            </div>
+            <span className="tracking-tight truncate font-medium">Team Members</span>
+          </div>
+        </button>
+
+        {/* Audit Logs (Admins & Superadmins only) */}
+        {canViewLogs && (
+          <button
+            onClick={() => router.push('/team/logs')}
+            className={`w-full flex items-center justify-between px-3 py-1.5 rounded-xl text-xs font-medium transition-all border group ${
+              isLogsActive
+                ? 'bg-blue-950/50 text-blue-200 border-blue-500/50 ring-1 ring-blue-500/30'
+                : 'bg-[#101728]/80 hover:bg-[#152038] text-slate-300 hover:text-white border-[#1c273e]'
+            }`}
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-5 h-5 rounded-md flex items-center justify-center bg-slate-800 text-slate-400 border border-slate-700/60 flex-shrink-0">
+                <History className="w-3.5 h-3.5" />
+              </div>
+              <span className="tracking-tight truncate font-medium">Audit Logs</span>
+            </div>
+          </button>
+        )}
+
+        {/* Organization Management (Superadmins only) */}
+        {isSuperadmin && (
+          <button
+            onClick={() => router.push('/admin/org')}
+            className={`w-full flex items-center justify-between px-3 py-1.5 rounded-xl text-xs font-medium transition-all border group ${
+              isOrgActive
+                ? 'bg-purple-950/50 text-purple-200 border-purple-500/50 ring-1 ring-purple-500/30'
+                : 'bg-[#101728]/80 hover:bg-[#152038] text-slate-300 hover:text-white border-[#1c273e]'
+            }`}
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-5 h-5 rounded-md flex items-center justify-center bg-purple-950/60 text-purple-400 border border-purple-700/60 flex-shrink-0">
+                <Building2 className="w-3.5 h-3.5" />
+              </div>
+              <span className="tracking-tight truncate font-medium text-purple-300">Organization</span>
+            </div>
+            <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-purple-500/20 text-purple-300">
+              Super
+            </span>
+          </button>
+        )}
       </div>
 
       {/* Drafts Section */}
       <div className="flex-1 flex flex-col min-h-0 px-3 py-2 border-t border-[#1a2234]/60">
-        <div className="flex items-center justify-between px-2 py-1.5 mb-1.5">
+        <div className="flex items-center justify-between px-2 py-1 mb-1">
           <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
             <Layers className="w-3 h-3 text-slate-500" />
             Saved Drafts
@@ -384,16 +439,12 @@ export default function Sidebar() {
         {/* Drafts List */}
         <div className="flex-1 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
           {drafts.length === 0 ? (
-            <div className="px-3 py-8 text-center flex flex-col items-center justify-center text-slate-600">
-              <FileText className="w-8 h-8 stroke-1 text-slate-700 mb-2" />
-              <p className="text-xs font-medium text-slate-500">No saved drafts yet</p>
-              <p className="text-[10px] text-slate-600 mt-1 max-w-[160px] leading-relaxed">
-                Documents you ingest or refine will be auto-saved here.
+            <div className="px-3 py-6 text-center flex flex-col items-center justify-center text-slate-600">
+              <FileText className="w-7 h-7 stroke-1 text-slate-700 mb-1.5" />
+              <p className="text-xs font-medium text-slate-500">No saved drafts</p>
+              <p className="text-[10px] text-slate-600 mt-0.5 leading-relaxed">
+                Ingested documents will appear here.
               </p>
-            </div>
-          ) : filteredDrafts.length === 0 ? (
-            <div className="px-3 py-6 text-center text-xs text-slate-500">
-              No drafts matching "{searchQuery}"
             </div>
           ) : (
             filteredDrafts.map((draft) => {
@@ -405,19 +456,19 @@ export default function Sidebar() {
                 <div
                   key={draft.id}
                   onClick={() => handleSelectDraft(draft)}
-                  className={`group relative flex items-center justify-between px-2.5 py-2 rounded-xl text-xs cursor-pointer transition-all border ${
+                  className={`group relative flex items-center justify-between px-2.5 py-1.5 rounded-xl text-xs cursor-pointer transition-all border ${
                     isSelected
                       ? 'bg-blue-950/40 text-blue-300 border-blue-500/40 shadow-sm ring-1 ring-blue-500/20'
                       : 'border-transparent text-slate-400 hover:bg-[#131b2e] hover:text-slate-200'
                   }`}
                 >
                   <div className="flex items-start space-x-2 min-w-0 flex-1 pr-2">
-                    <FileText className={`w-3.5 h-3.5 mt-0.5 flex-shrink-0 ${isSelected ? 'text-blue-400' : 'text-slate-500 group-hover:text-slate-400'}`} />
+                    <FileText className={`w-3.5 h-3.5 mt-0.5 flex-shrink-0 ${isSelected ? 'text-blue-400' : 'text-slate-500'}`} />
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-medium text-xs text-slate-200 group-hover:text-white leading-tight" title={draft.title || draft.filename}>
                         {draft.title || draft.filename || 'Untitled Knowledge Base'}
                       </p>
-                      <div className="flex items-center gap-1.5 mt-1">
+                      <div className="flex items-center gap-1.5 mt-0.5">
                         <span className="text-[10px] text-slate-500">
                           {formatRelativeTime(draft.updatedAt)}
                         </span>
@@ -455,35 +506,48 @@ export default function Sidebar() {
         </div>
       </div>
 
-      {/* Target Destination & Status Footer */}
-      <div
-        onClick={() => router.push('/kb')}
-        className="p-3 border-t border-[#1a2234] bg-[#070a11] cursor-pointer hover:bg-[#0c1220] transition-colors"
-        title="View Live Databricks Knowledge Base"
-      >
-        <div className="flex items-center space-x-2.5 px-2.5 py-2 rounded-xl bg-[#0e1422] border border-[#1a2234] hover:border-slate-700/80 transition-colors">
-          <Database className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-medium text-slate-300">Databricks Volume</span>
-              <span className="flex h-1.5 w-1.5 relative">
-                {kbSyncState === 'UPDATING' ? (
-                  <>
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-blue-500"></span>
-                  </>
-                ) : (
-                  <>
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
-                  </>
-                )}
-              </span>
+      {/* User Identity Profile Footer */}
+      <div className="p-3 border-t border-[#1a2234] bg-[#070a11]">
+        <div className="flex items-center justify-between p-2 rounded-xl bg-[#0e1422] border border-[#1a2234]">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-7 h-7 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center text-xs font-semibold text-slate-200 flex-shrink-0">
+              {session?.name ? session.name.charAt(0).toUpperCase() : session?.email?.charAt(0).toUpperCase() || 'U'}
             </div>
-            <p className="text-[9px] text-slate-500 truncate font-mono mt-0.5">
-              {kbVolumePath || '/Volumes/agents/default/knowledge_base/google_ai_assistant'}
-            </p>
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-slate-200 truncate leading-tight">
+                {session?.name || session?.email?.split('@')[0] || 'User'}
+              </p>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span
+                  className={`text-[9px] font-semibold uppercase px-1.5 py-0.2 rounded font-mono border ${
+                    isSuperadmin
+                      ? 'bg-purple-500/10 text-purple-300 border-purple-500/20'
+                      : role === 'admin'
+                      ? 'bg-indigo-500/10 text-indigo-300 border-indigo-500/20'
+                      : role === 'editor'
+                      ? 'bg-blue-500/10 text-blue-300 border-blue-500/20'
+                      : 'bg-slate-500/10 text-slate-400 border-slate-500/20'
+                  }`}
+                >
+                  {isSuperadmin ? 'Superadmin' : role}
+                </span>
+                <span className="text-[10px] text-slate-500 truncate max-w-[80px]">
+                  {session?.teamName || 'Org'}
+                </span>
+              </div>
+            </div>
           </div>
+
+          {/* Quick Dev Switch / Logout button in dev mode */}
+          {switchDevEmail && (
+            <button
+              onClick={() => switchDevEmail(null)}
+              className="p-1 text-slate-500 hover:text-slate-300 hover:bg-slate-800 rounded transition-colors"
+              title="Sign out / Switch account"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       </div>
     </aside>

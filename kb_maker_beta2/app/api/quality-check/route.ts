@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getModel, AIModelError } from "@/lib/vertex";
 import { parseQualityReport } from "@/lib/kb-quality";
+import { requireAuth } from "@/lib/auth/server";
 
 const HYBRID_QUALITY_CHECK_SYSTEM_PROMPT = `You are a corporate knowledge base auditor for RITA (Ramcar Corporate AI Assistant).
 
@@ -83,7 +84,7 @@ SCORING CRITERIA:
 
 3. Action Tokens & Escalation Logic (0–15):
 - Clear escalation point defined for each workflow (8 pts)
-- Well-defined action tokens ([[TOKEN_NAME:category|param=value]]) or explicit "None" (7 pts)
+- Well-defined action tokens from supported families ([[TRIGGER_ESCALATION_WIDGET...]], [[OFFER_SRF:...]], [[OFFER_EMAIL:...]]) or explicit "None" (7 pts)
 
 4. FAQ Entry Quality & Tagging (0–20):
 - Natural employee phrasing in Qs matching Google Chat tone (10 pts)
@@ -98,6 +99,13 @@ SCORING CRITERIA:
 
 export async function POST(request: NextRequest) {
   try {
+    const { session, errorResponse } = await requireAuth(request.headers, [
+      "superadmin",
+      "admin",
+      "editor",
+    ]);
+    if (errorResponse) return errorResponse;
+
     const { markdown } = await request.json();
     if (!markdown) {
       return NextResponse.json(

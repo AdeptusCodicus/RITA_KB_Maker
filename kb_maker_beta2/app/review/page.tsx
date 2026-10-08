@@ -41,6 +41,7 @@ import type { QualityReport } from "@/types/kb";
 import { saveDraft, deleteDraft, getActiveDraftId } from "@/lib/drafts";
 import Sidebar from "@/components/Sidebar";
 import DatabricksManagerModal from "@/components/DatabricksManagerModal";
+import { useAuth } from "@/components/AuthProvider";
 
 /* ── Helpers ─────────────────────────────────────────────────────────────────── */
 
@@ -217,6 +218,8 @@ function MarkdownPreview({ content }: { content: string }) {
 
 export default function ReviewPage() {
   const router = useRouter();
+  const { role } = useAuth();
+  const isViewer = role === 'viewer';
   const [extractedText, setExtractedText] = useState("");
   const [kbMarkdown, setKbMarkdown] = useState("");
   const [filename, setFilename] = useState("");
@@ -924,13 +927,20 @@ export default function ReviewPage() {
 
             {/* Primary Action: Deploy to Databricks */}
             <button
-              onClick={() => setShowDatabricksModal(true)}
-              className="h-8 px-3 rounded-lg text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 active:scale-[0.98] transition-all shadow-2xs flex items-center gap-1.5 flex-shrink-0"
+              onClick={() => !isViewer && setShowDatabricksModal(true)}
+              disabled={isViewer}
+              className={`h-8 px-3 rounded-lg text-xs font-medium flex items-center gap-1.5 flex-shrink-0 transition-all ${
+                isViewer
+                  ? "bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed"
+                  : "text-white bg-blue-600 hover:bg-blue-700 active:scale-[0.98] shadow-2xs cursor-pointer"
+              }`}
+              title={isViewer ? "Viewers have read-only access (cannot upload to Databricks)" : "Deploy to Databricks"}
             >
               <Upload className="w-3.5 h-3.5" />
               <span className="hidden md:inline">Upload to</span>
               <span>Databricks</span>
-              {bgSyncState.isSyncing && (
+              {isViewer && <span className="text-[10px] text-slate-400 font-mono">(Read-Only)</span>}
+              {!isViewer && bgSyncState.isSyncing && (
                 <span className="w-2 h-2 rounded-full bg-sky-300 animate-pulse ml-0.5" title="Assistant syncing in background" />
               )}
             </button>

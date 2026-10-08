@@ -17,9 +17,12 @@ import {
   Sparkles,
   Clock,
   RotateCcw,
+  Eye,
+  BookOpen,
 } from "lucide-react";
 import type { ProcessingState, UploadedFile } from "@/types/kb";
 import Sidebar from "@/components/Sidebar";
+import { useAuth } from "@/components/AuthProvider";
 
 const ACCEPTED_EXTENSIONS = ".pdf,.docx,.doc,.txt,.md,.csv,.png,.jpg,.jpeg,.webp,.tiff";
 
@@ -40,6 +43,7 @@ function getFileIcon(filename: string, type: string) {
 
 export default function UploadPage() {
   const router = useRouter();
+  const { role, isSuperadmin } = useAuth();
   const [selectedFile, setSelectedFile] = useState<UploadedFile | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [processing, setProcessing] = useState<ProcessingState>({
@@ -389,6 +393,39 @@ export default function UploadPage() {
 
   const isProcessing = processing.step !== "idle" && processing.step !== "error";
   const FileIcon = selectedFile ? getFileIcon(selectedFile.name, selectedFile.type) : Upload;
+
+  if (role === 'viewer') {
+    return (
+      <div className="flex h-screen bg-[#fafbfc]">
+        <Sidebar />
+        <main className="flex-1 overflow-y-auto flex flex-col justify-center items-center px-6 py-12">
+          <div className="w-full max-w-md mx-auto text-center bg-white border border-slate-200 rounded-2xl p-8 shadow-sm">
+            <div className="w-12 h-12 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-500 mx-auto mb-4">
+              <Eye className="w-6 h-6" />
+            </div>
+            <h2 className="text-base font-semibold text-slate-900 mb-1.5">Viewer Permissions (Read-Only)</h2>
+            <p className="text-xs text-slate-500 leading-relaxed mb-6">
+              You are signed in with the Viewer role. Viewers can browse and inspect knowledge bases, but cannot ingest new documents. Ask your team administrator for Editor permissions to generate KBs.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-2.5 justify-center">
+              <button
+                onClick={() => router.push('/team/kbs')}
+                className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs cursor-pointer"
+              >
+                Team Knowledge Base
+              </button>
+              <button
+                onClick={() => router.push('/kb')}
+                className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium cursor-pointer"
+              >
+                All Knowledge Bases
+              </button>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen bg-[#fafbfc]">

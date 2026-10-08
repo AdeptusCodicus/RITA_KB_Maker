@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { extractText } from '@/lib/extract';
+import { requireAuth } from '@/lib/auth/server';
 
 const ALLOWED_MIME_TYPES = new Set([
   'application/pdf',
@@ -32,6 +33,13 @@ const ALLOWED_EXTENSIONS = new Set([
 
 export async function POST(request: NextRequest) {
   try {
+    const { session, errorResponse } = await requireAuth(request.headers, [
+      'superadmin',
+      'admin',
+      'editor',
+    ]);
+    if (errorResponse) return errorResponse;
+
     const formData = await request.formData();
     const file = formData.get('file') as File | null;
 

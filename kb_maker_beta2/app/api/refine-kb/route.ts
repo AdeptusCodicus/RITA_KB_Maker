@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { getModel, AIModelError } from '@/lib/vertex';
+import { requireAuth } from '@/lib/auth/server';
 
 const REFINE_KB_SYSTEM_PROMPT = `You are an expert corporate knowledge base editor for RITA, Ramcar's corporate AI assistant.
 
@@ -20,11 +21,18 @@ Rules:
 1. Apply ALL user refinement instructions precisely.
 2. Maintain Google Chat text formatting: *single asterisks for bold*, _single underscores for italic_, - or * for bullets. Do NOT use hash headers inside workflow steps or FAQ answers.
 3. Keep RITA's One-Step Rule: every procedural step must be followed by "→ Wait for user confirmation before Step X."
-4. Preserve all existing factual details and action tokens that were not requested to be changed.
+4. Preserve all existing factual details. For action tokens, adhere strictly to supported token families: [[TRIGGER_ESCALATION_WIDGET...]], [[OFFER_SRF:...]], or [[OFFER_EMAIL:...]]; do not invent novel widget tokens.
 5. Output ONLY the complete, updated valid Markdown KB. No preamble, conversation, or commentary.`;
 
 export async function POST(request: NextRequest) {
   try {
+    const { session, errorResponse } = await requireAuth(request.headers, [
+      'superadmin',
+      'admin',
+      'editor',
+    ]);
+    if (errorResponse) return errorResponse;
+
     const { markdown, instructions, originalText } = await request.json();
 
     if (!markdown || !instructions) {

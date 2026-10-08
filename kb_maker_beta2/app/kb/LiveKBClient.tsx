@@ -36,6 +36,13 @@ interface DatabricksFileItem {
   is_dir: boolean;
   file_size?: number;
   last_modified?: number;
+  filename?: string;
+  teamId?: string | null;
+  teamName?: string;
+  isTeamOwner?: boolean;
+  canEdit?: boolean;
+  readOnly?: boolean;
+  uploadedBy?: { email: string; name: string } | null;
 }
 
 function formatFileSize(bytes?: number): string {
@@ -763,17 +770,36 @@ export default function LiveKBClient() {
                             <span>•</span>
                             <span>{formatModifiedDate(file.last_modified)}</span>
                           </div>
+
+                          <div className="mt-1 flex items-center gap-1">
+                            {file.isTeamOwner ? (
+                              <span className="text-[9px] px-1.5 py-0.2 rounded font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                                Your Team
+                              </span>
+                            ) : (
+                              <span className="text-[9px] px-1.5 py-0.2 rounded font-medium bg-slate-100 text-slate-600 border border-slate-200" title={file.teamName ? `Owned by ${file.teamName}` : 'Shared'}>
+                                {file.teamName || 'Organization Shared'}
+                              </span>
+                            )}
+                            {file.readOnly && (
+                              <span className="text-[9px] px-1 py-0.2 rounded font-medium text-slate-400 bg-slate-50 border border-slate-150">
+                                Read-Only
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
 
                       <div className="flex items-center space-x-1 flex-shrink-0">
-                        <button
-                          onClick={(e) => promptDeleteConfirmation(e, file.path)}
-                          className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                          title="Delete from Databricks"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        {!file.readOnly ? (
+                          <button
+                            onClick={(e) => promptDeleteConfirmation(e, file.path)}
+                            className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all cursor-pointer"
+                            title="Delete from Databricks"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        ) : null}
                       </div>
                     </div>
                   );
@@ -843,6 +869,18 @@ export default function LiveKBClient() {
                       <span>•</span>
                       <span>{formatFileSize(selectedFile?.file_size)}</span>
                     </div>
+
+                    {selectedFile?.readOnly ? (
+                      <span className="hidden md:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-600 border border-slate-200 flex-shrink-0">
+                        <Eye className="w-3 h-3 text-slate-500" />
+                        Read-Only ({selectedFile.teamName || 'Shared'})
+                      </span>
+                    ) : selectedFile?.isTeamOwner ? (
+                      <span className="hidden md:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-50 text-blue-700 border border-blue-200 flex-shrink-0">
+                        <CheckCircle2 className="w-3 h-3 text-blue-600" />
+                        Your Team
+                      </span>
+                    ) : null}
                   </div>
 
                   {/* View Controls & Action CTAs (Fixed right, never wrapped or pushed) */}

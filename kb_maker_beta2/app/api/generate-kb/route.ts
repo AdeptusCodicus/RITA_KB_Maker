@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { getModel, AIModelError } from "@/lib/vertex";
+import { requireAuth } from "@/lib/auth/server";
 
 const HYBRID_KB_SYSTEM_PROMPT = `You are a knowledge base architect for RITA, Ramcar's corporate AI assistant.
 
@@ -26,7 +27,11 @@ Before writing a single line, internalize these RITA rules. Every KB you produce
 
 3. LANGUAGE — RITA responds in English or professional Taglish depending on the user's message. Your KB content must be written in English. RITA will handle the language switching at runtime.
 
-4. ACTION TOKENS — Some workflows emit middleware tokens (e.g. [[OFFER_SRF:wifi]] or [[TRIGGER_ESCALATION_WIDGET]]). If the document being processed describes a workflow that should trigger a token, define the token name, syntax, and exact trigger condition in the KB.
+4. ACTION TOKENS — RITA supports only a defined set of interactive middleware tokens:
+   - [[TRIGGER_ESCALATION_WIDGET]] or [[TRIGGER_ESCALATION_WIDGET:category|param=value]] — transfers the user to human support.
+   - [[OFFER_SRF:category|param=value]] — surfaces an IT Service Request Form (SRF) button.
+   - [[OFFER_EMAIL:category|param=value]] — surfaces an email drafting request button.
+   Do NOT invent custom or arbitrary widget tokens. Use ONLY the supported token families above with appropriate categories and optional params (e.g. [[OFFER_SRF:pos_printer|ticket=12345]]), or specify "None".
 
 5. ESCALATION — RITA escalates when: the KB doesn't cover the concern, the user is stuck after 2 exchanges, the user asks for a human, or KB documents conflict. Your KB must explicitly define escalation trigger points per workflow.
 
@@ -67,7 +72,7 @@ Produce a single Markdown file using the exact structure below. Do not deviate f
 *Type:* Step-by-Step Troubleshooting | FAQ | Policy | Request Form
 *Trigger phrases:* [3–5 example user messages that would activate this workflow]
 *Escalation point:* [Exact condition under which RITA should escalate this specific workflow]
-*Action token:* [[TOKEN_NAME:category|param=value]] — emit when [exact trigger condition] | None
+*Action token:* [[TRIGGER_ESCALATION_WIDGET:category]] | [[OFFER_SRF:category|param=value]] | [[OFFER_EMAIL:category|param=value]] — emit when [exact trigger condition] | None
 
 *Steps:*
 
@@ -108,10 +113,10 @@ Step 2: [Next single atomic action.]
 
 ## Action Token Definitions
 
-[Define every token this KB introduces. Omit section if none.]
+[Define tokens used in this KB from the supported token families: TRIGGER_ESCALATION_WIDGET, OFFER_SRF, or OFFER_EMAIL. Omit section if none.]
 
 *Token:* [[TOKEN_NAME:category|param=value]]
-*Purpose:* [What this token does — what button or action it surfaces to the user]
+*Purpose:* [What this token does — e.g. launches support escalation card, SRF form button, or email action]
 *Emit condition:* [The exact moment in the workflow when RITA should emit this token]
 *Suppress if:* [Condition under which the token should NOT be emitted even if the workflow is active]
 
@@ -146,6 +151,13 @@ RITA is now equipped to handle [topic] concerns using the [KB title] knowledge b
 
 export async function POST(request: NextRequest) {
   try {
+    const { session, errorResponse } = await requireAuth(request.headers, [
+      "superadmin",
+      "admin",
+      "editor",
+    ]);
+    if (errorResponse) return errorResponse;
+
     const { text, filename } = await request.json();
 
     if (!text || !filename) {
