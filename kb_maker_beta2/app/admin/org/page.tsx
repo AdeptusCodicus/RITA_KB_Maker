@@ -141,7 +141,7 @@ export default function SuperadminOrgPage() {
   });
 
   return (
-    <div className="flex h-screen bg-[#070a11] text-slate-100 antialiased overflow-hidden">
+    <div className="flex h-screen w-full bg-[#070a11] text-slate-100 antialiased overflow-hidden">
       <Sidebar />
 
       <main className="flex-1 flex flex-col h-full overflow-hidden bg-[#0a0e1a]">

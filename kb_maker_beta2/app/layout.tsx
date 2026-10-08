@@ -40,7 +40,7 @@ export default function RootLayout({
       lang="en"
       className={`${inter.variable} ${jetbrainsMono.variable} h-full`}
     >
-      <body className="h-full font-sans antialiased" suppressHydrationWarning>
+      <body className="h-full font-sans antialiased bg-[#070a11]" suppressHydrationWarning>
         <AuthProvider>{children}</AuthProvider>
       </body>
     </html>

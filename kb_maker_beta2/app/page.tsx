@@ -396,7 +396,7 @@ export default function UploadPage() {
 
   if (role === 'viewer') {
     return (
-      <div className="flex h-screen bg-[#fafbfc]">
+      <div className="flex h-screen w-full bg-[#fafbfc]">
         <Sidebar />
         <main className="flex-1 overflow-y-auto flex flex-col justify-center items-center px-6 py-12">
           <div className="w-full max-w-md mx-auto text-center bg-white border border-slate-200 rounded-2xl p-8 shadow-sm">
@@ -428,7 +428,7 @@ export default function UploadPage() {
   }
 
   return (
-    <div className="flex h-screen bg-[#fafbfc]">
+    <div className="flex h-screen w-full bg-[#fafbfc]">
       {/* Sidebar */}
       <Sidebar />
 

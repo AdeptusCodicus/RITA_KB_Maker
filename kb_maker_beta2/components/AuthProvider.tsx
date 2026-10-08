@@ -206,9 +206,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         teamName: session.teamName,
       }}
     >
-      <div className="flex flex-col h-screen w-screen overflow-hidden">
+      <div className="flex flex-col h-screen w-full overflow-hidden bg-[#070a11]">
         <SimulationBanner />
-        <div className="flex-1 flex overflow-hidden min-h-0">
+        <div className="flex-1 w-full h-full overflow-hidden min-h-0 relative">
           {children}
         </div>
       </div>
