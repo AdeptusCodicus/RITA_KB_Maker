@@ -28,7 +28,16 @@ interface AccountModalProps {
 }
 
 export default function AccountModal({ isOpen, onClose }: AccountModalProps) {
-  const { session, switchDevEmail, refreshSession, isSuperadmin, role, teamName } = useAuth();
+  const {
+    session,
+    switchDevEmail,
+    simulateRole,
+    simulateUser,
+    exitSimulation,
+    isSuperadmin,
+    role,
+    teamName,
+  } = useAuth();
   const [activeTab, setActiveTab] = useState<'role' | 'user'>('role');
   
   // Role Simulation state
@@ -57,8 +66,12 @@ export default function AccountModal({ isOpen, onClose }: AccountModalProps) {
           const data = await res.json();
           const loaded: TeamDocument[] = data.teams || [];
           setTeams(loaded);
-          if (loaded.length > 0 && !selectedTeamId) {
-            setSelectedTeamId(loaded[0].id);
+          if (loaded.length > 0) {
+            setSelectedTeamId((prev) => {
+              if (prev && loaded.some((t) => t.id === prev)) return prev;
+              if (session?.teamId && loaded.some((t) => t.id === session.teamId)) return session.teamId;
+              return loaded[0].id;
+            });
           }
         }
       } catch (e) {
@@ -66,7 +79,7 @@ export default function AccountModal({ isOpen, onClose }: AccountModalProps) {
       }
     }
     loadTeams();
-  }, [isOpen, selectedTeamId]);
+  }, [isOpen, session?.teamId]);
 
   if (!isOpen || !session) return null;
 
@@ -74,25 +87,17 @@ export default function AccountModal({ isOpen, onClose }: AccountModalProps) {
     setIsSimulatingRole(true);
     setActionError(null);
     try {
-      const chosenTeam = teams.find((t) => t.id === selectedTeamId);
-      const res = await fetch('/api/auth/me', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'simulate_role',
-          role: simRole,
-          teamId: simRole === 'unassigned' || simRole === 'superadmin' ? null : selectedTeamId || null,
-          teamName: simRole === 'unassigned' || simRole === 'superadmin' ? null : chosenTeam?.name || null,
-        }),
-      });
+      const effectiveTeamId =
+        simRole === 'unassigned' || simRole === 'superadmin'
+          ? null
+          : selectedTeamId || (teams.length > 0 ? teams[0].id : null);
+      const chosenTeam = teams.find((t) => t.id === effectiveTeamId);
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setActionError(data.error || 'Failed to apply role simulation');
-        return;
-      }
-
-      await refreshSession();
+      await simulateRole(
+        simRole,
+        effectiveTeamId,
+        chosenTeam?.name || null
+      );
       onClose();
     } catch {
       setActionError('Network error while simulating role');
@@ -106,22 +111,7 @@ export default function AccountModal({ isOpen, onClose }: AccountModalProps) {
     setIsSwitchingUser(true);
     setActionError(null);
     try {
-      const res = await fetch('/api/auth/me', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'simulate_user',
-          email: selectedEmail.trim().toLowerCase(),
-        }),
-      });
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setActionError(data.error || 'Failed to simulate user');
-        return;
-      }
-
-      await refreshSession();
+      await simulateUser(selectedEmail.trim().toLowerCase());
       onClose();
     } catch {
       setActionError('Network error while simulating user');
@@ -134,12 +124,7 @@ export default function AccountModal({ isOpen, onClose }: AccountModalProps) {
     setIsExitingSimulation(true);
     setActionError(null);
     try {
-      await fetch('/api/auth/me', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'clear_simulation' }),
-      });
-      await refreshSession();
+      await exitSimulation();
       onClose();
     } catch {
       setActionError('Failed to exit simulation');

@@ -3,6 +3,7 @@ import {
   getUserDoc,
   upsertUserDoc,
   getTeamDoc,
+  getAllTeams,
   isSuperadminEmail,
   isEmailInOrganization,
 } from '@/lib/firestore';
@@ -52,11 +53,24 @@ export async function getRealAuthenticatedEmail(
     return process.env.DEV_AUTH_EMAIL.trim().toLowerCase();
   }
 
+  // 4. Dev cookie fallback in local dev
+  if (process.env.NODE_ENV !== 'production' && cookieHeader) {
+    const devMatch = cookieHeader.match(/(?:^|;\s*)kb_dev_email=([^;]+)/);
+    if (devMatch && devMatch[1]) {
+      const val = decodeURIComponent(devMatch[1]).trim().toLowerCase();
+      if (val && val !== '__signed_out__' && val !== '__clear__') {
+        return val;
+      }
+    }
+  }
+
   return null;
 }
 
 /**
  * Parses active simulation configuration from cookies.
+ * Uses iterative decoding (up to 3x) to robustly parse double-encoded, single-encoded,
+ * or raw JSON strings.
  */
 export function getSimulationConfigFromHeaders(
   reqHeaders?: Headers
@@ -66,25 +80,47 @@ export function getSimulationConfigFromHeaders(
   if (!cookieHeader) return null;
 
   // 1. JSON simulation cookie
-  const simMatch = cookieHeader.match(/kb_simulation=([^;]+)/);
+  const simMatch = cookieHeader.match(/(?:^|;\s*)kb_simulation=([^;]+)/);
   if (simMatch && simMatch[1]) {
     try {
-      const decoded = decodeURIComponent(simMatch[1]).trim();
-      if (decoded === '__clear__' || decoded === '__signed_out__') return null;
+      let decoded = simMatch[1].trim();
+      if ((decoded.startsWith('"') && decoded.endsWith('"')) || (decoded.startsWith("'") && decoded.endsWith("'"))) {
+        decoded = decoded.slice(1, -1);
+      }
+      for (let i = 0; i < 3; i++) {
+        try {
+          const next = decodeURIComponent(decoded);
+          if (next === decoded) break;
+          decoded = next;
+        } catch {
+          break;
+        }
+      }
+      if (decoded === '__clear__' || decoded === '__signed_out__' || !decoded) return null;
       const parsed = JSON.parse(decoded);
       if (parsed && (parsed.mode === 'role' || parsed.mode === 'user')) {
         return parsed as SimulationConfig;
       }
-    } catch {
-      // ignore JSON parse failure
+    } catch (e) {
+      console.warn('[auth] Failed to parse kb_simulation cookie:', e);
     }
   }
 
   // 2. Legacy dev email cookie
-  const devMatch = cookieHeader.match(/kb_dev_email=([^;]+)/);
+  const devMatch = cookieHeader.match(/(?:^|;\s*)kb_dev_email=([^;]+)/);
   if (devMatch && devMatch[1]) {
-    const val = decodeURIComponent(devMatch[1]).trim().toLowerCase();
-    if (val && val !== '__signed_out__') {
+    let val = devMatch[1].trim();
+    for (let i = 0; i < 3; i++) {
+      try {
+        const next = decodeURIComponent(val);
+        if (next === val) break;
+        val = next;
+      } catch {
+        break;
+      }
+    }
+    val = val.toLowerCase();
+    if (val && val !== '__signed_out__' && val !== '__clear__') {
       return { mode: 'user', email: val };
     }
   }
@@ -167,9 +203,17 @@ export async function getServerSession(reqHeaders?: Headers): Promise<AuthSessio
         }
 
         // Team roles: admin, editor, viewer
-        const simTeamId = simConfig.teamId || null;
+        let simTeamId = simConfig.teamId || null;
         let simTeamName = simConfig.teamName || null;
-        if (simTeamId && !simTeamName) {
+
+        // Auto-fallback: if no team specified, bind to the first active team in Firestore
+        if (!simTeamId) {
+          const allTeams = await getAllTeams();
+          if (allTeams.length > 0) {
+            simTeamId = allTeams[0].id;
+            simTeamName = allTeams[0].name;
+          }
+        } else if (!simTeamName) {
           const t = await getTeamDoc(simTeamId);
           simTeamName = t ? t.name : null;
         }

@@ -42,20 +42,32 @@ export async function POST(request: Request) {
 
     // 1. Clear simulation / Sign out
     if (action === 'clear_simulation' || (devEmail === null && !action)) {
+      response.cookies.delete('kb_simulation');
       response.cookies.set({
         name: 'kb_simulation',
-        value: '__clear__',
+        value: '',
         path: '/',
         maxAge: 0,
         sameSite: 'lax',
       });
-      response.cookies.set({
-        name: 'kb_dev_email',
-        value: devEmail === null && !action ? '__signed_out__' : '__clear__',
-        path: '/',
-        maxAge: devEmail === null && !action ? 60 * 60 * 24 * 7 : 0,
-        sameSite: 'lax',
-      });
+      if (devEmail === null && !action) {
+        response.cookies.set({
+          name: 'kb_dev_email',
+          value: '__signed_out__',
+          path: '/',
+          maxAge: 60 * 60 * 24 * 7,
+          sameSite: 'lax',
+        });
+      } else {
+        response.cookies.delete('kb_dev_email');
+        response.cookies.set({
+          name: 'kb_dev_email',
+          value: '',
+          path: '/',
+          maxAge: 0,
+          sameSite: 'lax',
+        });
+      }
       return response;
     }
 
@@ -70,7 +82,7 @@ export async function POST(request: Request) {
 
       response.cookies.set({
         name: 'kb_simulation',
-        value: encodeURIComponent(JSON.stringify(simConfig)),
+        value: JSON.stringify(simConfig),
         path: '/',
         maxAge: 60 * 60 * 24 * 7,
         sameSite: 'lax',
@@ -88,7 +100,7 @@ export async function POST(request: Request) {
 
       response.cookies.set({
         name: 'kb_simulation',
-        value: encodeURIComponent(JSON.stringify(simConfig)),
+        value: JSON.stringify(simConfig),
         path: '/',
         maxAge: 60 * 60 * 24 * 7,
         sameSite: 'lax',

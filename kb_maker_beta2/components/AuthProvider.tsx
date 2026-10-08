@@ -12,6 +12,9 @@ interface AuthContextType {
   loading: boolean;
   refreshSession: () => Promise<void>;
   switchDevEmail: (email: string | null) => Promise<void>;
+  simulateRole: (role: UserRole, teamId?: string | null, teamName?: string | null) => Promise<void>;
+  simulateUser: (email: string) => Promise<void>;
+  exitSimulation: () => Promise<void>;
   isSuperadmin: boolean;
   role: UserRole;
   teamId: string | null;
@@ -23,6 +26,9 @@ const AuthContext = createContext<AuthContextType>({
   loading: true,
   refreshSession: async () => {},
   switchDevEmail: async () => {},
+  simulateRole: async () => {},
+  simulateUser: async () => {},
+  exitSimulation: async () => {},
   isSuperadmin: false,
   role: 'unassigned',
   teamId: null,
@@ -98,6 +104,90 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     },
     [fetchSession]
   );
+
+  const simulateRole = useCallback(
+    async (role: UserRole, teamId?: string | null, teamName?: string | null) => {
+      setLoading(true);
+      try {
+        const simConfig = {
+          mode: 'role',
+          role,
+          teamId: teamId || null,
+          teamName: teamName || null,
+        };
+        // Update client document.cookie for immediate local sync across client components
+        if (typeof document !== 'undefined') {
+          document.cookie = `kb_simulation=${encodeURIComponent(JSON.stringify(simConfig))}; path=/; max-age=604800; SameSite=Lax`;
+        }
+        await fetch('/api/auth/me', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'simulate_role',
+            role,
+            teamId,
+            teamName,
+          }),
+        });
+        await fetchSession();
+      } catch (err) {
+        console.error('Failed to simulate role:', err);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [fetchSession]
+  );
+
+  const simulateUser = useCallback(
+    async (email: string) => {
+      setLoading(true);
+      try {
+        const simConfig = {
+          mode: 'user',
+          email: email.trim().toLowerCase(),
+        };
+        if (typeof document !== 'undefined') {
+          document.cookie = `kb_simulation=${encodeURIComponent(JSON.stringify(simConfig))}; path=/; max-age=604800; SameSite=Lax`;
+          document.cookie = `kb_dev_email=${encodeURIComponent(email.trim().toLowerCase())}; path=/; max-age=604800; SameSite=Lax`;
+        }
+        await fetch('/api/auth/me', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'simulate_user',
+            email: email.trim().toLowerCase(),
+          }),
+        });
+        await fetchSession();
+      } catch (err) {
+        console.error('Failed to simulate user:', err);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [fetchSession]
+  );
+
+  const exitSimulation = useCallback(async () => {
+    setLoading(true);
+    try {
+      if (typeof document !== 'undefined') {
+        document.cookie = 'kb_simulation=; path=/; max-age=0; SameSite=Lax';
+        document.cookie = 'kb_dev_email=; path=/; max-age=0; SameSite=Lax';
+      }
+      await fetch('/api/auth/me', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'clear_simulation' }),
+      });
+      await fetchSession();
+    } catch (err) {
+      console.error('Failed to exit simulation:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchSession]);
 
   // Full page dark loader
   if (loading) {
@@ -189,6 +279,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         session={session}
         onRefresh={fetchSession}
         onSwitchDevEmail={switchDevEmail}
+        onExitSimulation={exitSimulation}
       />
     );
   }
@@ -200,6 +291,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loading,
         refreshSession: fetchSession,
         switchDevEmail,
+        simulateRole,
+        simulateUser,
+        exitSimulation,
         isSuperadmin: session.isSuperadmin,
         role: session.role,
         teamId: session.teamId,

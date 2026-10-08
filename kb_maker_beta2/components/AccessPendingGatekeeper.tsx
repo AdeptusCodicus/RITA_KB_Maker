@@ -9,12 +9,14 @@ interface AccessPendingGatekeeperProps {
   session: AuthSession;
   onRefresh: () => Promise<void>;
   onSwitchDevEmail?: (email: string | null) => Promise<void>;
+  onExitSimulation?: () => Promise<void>;
 }
 
 export default function AccessPendingGatekeeper({
   session,
   onRefresh,
   onSwitchDevEmail,
+  onExitSimulation,
 }: AccessPendingGatekeeperProps) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [devInput, setDevInput] = useState('');
@@ -58,11 +60,15 @@ export default function AccessPendingGatekeeper({
           {session.isSimulating && (
             <button
               onClick={() => {
-                fetch('/api/auth/me', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ action: 'clear_simulation' }),
-                }).then(() => onRefresh());
+                if (onExitSimulation) {
+                  onExitSimulation();
+                } else {
+                  fetch('/api/auth/me', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'clear_simulation' }),
+                  }).then(() => onRefresh());
+                }
               }}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold transition-colors cursor-pointer shadow-md shadow-purple-600/30"
               title="Exit simulation and return to your account"

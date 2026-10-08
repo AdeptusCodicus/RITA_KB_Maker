@@ -5,7 +5,7 @@ import { Eye, LogOut, RefreshCw, ShieldAlert, Sparkles, Building2 } from 'lucide
 import { useAuth } from './AuthProvider';
 
 export default function SimulationBanner() {
-  const { session, switchDevEmail, refreshSession } = useAuth();
+  const { session, exitSimulation } = useAuth();
   const [isExiting, setIsExiting] = useState(false);
 
   if (!session?.isSimulating) return null;
@@ -13,12 +13,7 @@ export default function SimulationBanner() {
   const handleExitSimulation = async () => {
     setIsExiting(true);
     try {
-      await fetch('/api/auth/me', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'clear_simulation' }),
-      });
-      await refreshSession();
+      await exitSimulation();
     } catch (e) {
       console.error('Failed to exit simulation:', e);
     } finally {

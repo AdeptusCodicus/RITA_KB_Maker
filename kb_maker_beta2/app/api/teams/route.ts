@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireAuth } from '@/lib/auth/server';
+import { requireAuth, getRealAuthenticatedEmail } from '@/lib/auth/server';
 import {
   getAllTeams,
   getTeamDoc,
@@ -9,6 +9,7 @@ import {
   getTeamKBs,
   upsertUserDoc,
   getUserDoc,
+  isSuperadminEmail,
   isEmailInOrganization,
 } from '@/lib/firestore';
 import { verifyGoogleWorkspaceUser, formatNameFromEmail } from '@/lib/google-workspace';
@@ -21,8 +22,11 @@ export async function GET(request: Request) {
     const { session, errorResponse } = await requireAuth(request.headers);
     if (errorResponse) return errorResponse;
 
-    // Superadmins can retrieve all teams with summaries
-    if (session.isSuperadmin) {
+    const realEmail = await getRealAuthenticatedEmail(request.headers);
+    const isRealSuperadmin = realEmail ? isSuperadminEmail(realEmail) : false;
+
+    // Superadmins (and superadmins simulating a role) can retrieve all teams with summaries
+    if (session.isSuperadmin || isRealSuperadmin) {
       const teams = await getAllTeams();
       // Enrich with member and KB counts safely
       const enriched = await Promise.all(
