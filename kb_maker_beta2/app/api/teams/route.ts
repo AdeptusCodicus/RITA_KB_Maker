@@ -9,7 +9,9 @@ import {
   getTeamKBs,
   upsertUserDoc,
   getUserDoc,
+  isEmailInOrganization,
 } from '@/lib/firestore';
+import { verifyGoogleWorkspaceUser, formatNameFromEmail } from '@/lib/google-workspace';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -91,6 +93,23 @@ export async function POST(request: Request) {
       ? adminEmails.map((e: string) => e.trim().toLowerCase()).filter(Boolean)
       : [];
 
+    // Verify all specified initial admin emails against Google Workspace
+    for (const adminEmail of normalizedAdmins) {
+      if (!isEmailInOrganization(adminEmail)) {
+        return NextResponse.json(
+          { error: `Admin email ${adminEmail} does not belong to authorized organization domain(s).` },
+          { status: 400 }
+        );
+      }
+      const googleCheck = await verifyGoogleWorkspaceUser(adminEmail);
+      if (!googleCheck.exists) {
+        return NextResponse.json(
+          { error: googleCheck.error || `Admin email ${adminEmail} does not exist in Google Workspace.` },
+          { status: 400 }
+        );
+      }
+    }
+
     const newTeam = await createTeamDoc(
       teamId,
       name.trim(),
@@ -101,10 +120,13 @@ export async function POST(request: Request) {
 
     // If admins are specified, set their team assignment
     for (const adminEmail of normalizedAdmins) {
+      const existing = await getUserDoc(adminEmail);
+      const googleCheck = await verifyGoogleWorkspaceUser(adminEmail);
       await upsertUserDoc(adminEmail, {
         teamId,
         teamRole: 'admin',
         status: 'active',
+        name: existing?.name || googleCheck.name || formatNameFromEmail(adminEmail),
       });
     }
 

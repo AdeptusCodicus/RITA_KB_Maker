@@ -6,9 +6,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Loader2,
-  Building2,
   UserCheck,
-  UserPlus,
 } from 'lucide-react';
 import type { SearchUserItem } from '@/types/auth';
 
@@ -40,8 +38,15 @@ export default function VerifiedEmailInput({
   const [emailInput, setEmailInput] = useState(value || '');
   const [isValidating, setIsValidating] = useState(false);
   const [matchedUser, setMatchedUser] = useState<SearchUserItem | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [validationState, setValidationState] = useState<
-    'empty' | 'incomplete' | 'invalid_domain' | 'already_in_team' | 'verified_existing' | 'verified_new'
+    | 'empty'
+    | 'incomplete'
+    | 'invalid_domain'
+    | 'already_in_team'
+    | 'google_verified_existing'
+    | 'google_verified_new'
+    | 'google_not_found'
   >('empty');
 
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -54,6 +59,7 @@ export default function VerifiedEmailInput({
   const validateEmail = useCallback(
     async (email: string) => {
       const trimmed = email.trim().toLowerCase();
+      setErrorMessage(null);
 
       if (!trimmed) {
         setValidationState('empty');
@@ -62,7 +68,7 @@ export default function VerifiedEmailInput({
         return;
       }
 
-      // Check if user is still typing an email structure
+      // Check email format
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(trimmed)) {
         setValidationState('incomplete');
@@ -71,7 +77,7 @@ export default function VerifiedEmailInput({
         return;
       }
 
-      // Verify domain
+      // Check organization domain
       const domain = trimmed.split('@').pop() || '';
       if (domain !== ORG_DOMAIN) {
         setValidationState('invalid_domain');
@@ -80,39 +86,56 @@ export default function VerifiedEmailInput({
         return;
       }
 
-      // Valid org domain: perform instant background lookup
+      // Valid org domain: verify in real time against Google Workspace via DWD
       setIsValidating(true);
       try {
         const res = await fetch(`/api/users/search?email=${encodeURIComponent(trimmed)}&_t=${Date.now()}`);
-        if (res.ok) {
-          const data = await res.json();
-          const user: SearchUserItem | null = data.user;
-
-          if (user) {
-            setMatchedUser(user);
-            if (currentTeamId && user.teamId === currentTeamId) {
-              setValidationState('already_in_team');
-              onChange(trimmed, false, user);
-            } else {
-              setValidationState('verified_existing');
-              onChange(trimmed, true, user);
-            }
-          } else {
-            setMatchedUser(null);
-            setValidationState('verified_new');
-            onChange(trimmed, true, null);
-          }
-        } else {
-          // Fallback: domain is valid, accept as new
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
           setMatchedUser(null);
-          setValidationState('verified_new');
-          onChange(trimmed, true, null);
+          setErrorMessage(errData.error || 'Failed to verify account with Google Workspace');
+          setValidationState('google_not_found');
+          onChange(trimmed, false, null);
+          return;
         }
-      } catch {
-        // Fallback: domain is valid
+
+        const data = await res.json();
+
+        // 1. Google Workspace confirmed non-existent
+        if (!data.existsOnGoogle) {
+          setMatchedUser(null);
+          setErrorMessage(data.error || `User does not exist in Google Workspace (@${ORG_DOMAIN})`);
+          setValidationState('google_not_found');
+          onChange(trimmed, false, null);
+          return;
+        }
+
+        // 2. Google Workspace confirmed user EXISTS!
+        const user: SearchUserItem | null = data.user;
+        setMatchedUser(user);
+
+        // Check if user is already assigned to the current team
+        if (currentTeamId && user?.teamId === currentTeamId) {
+          setValidationState('already_in_team');
+          onChange(trimmed, false, user);
+          return;
+        }
+
+        if (data.isExistingMember && user?.teamId) {
+          // Already registered in another team or system
+          setValidationState('google_verified_existing');
+          onChange(trimmed, true, user);
+        } else {
+          // Real Google account verified, ready to invite or assign
+          setValidationState('google_verified_new');
+          onChange(trimmed, true, user);
+        }
+      } catch (err: any) {
+        console.error('Email verification error:', err);
         setMatchedUser(null);
-        setValidationState('verified_new');
-        onChange(trimmed, true, null);
+        setErrorMessage('Network error while contacting Google Workspace verification');
+        setValidationState('google_not_found');
+        onChange(trimmed, false, null);
       } finally {
         setIsValidating(false);
       }
@@ -127,11 +150,12 @@ export default function VerifiedEmailInput({
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     debounceTimerRef.current = setTimeout(() => {
       validateEmail(val);
-    }, 200);
+    }, 250);
   };
 
   const isVerified =
-    validationState === 'verified_existing' || validationState === 'verified_new';
+    validationState === 'google_verified_existing' ||
+    validationState === 'google_verified_new';
 
   return (
     <div className="w-full text-left space-y-1.5">
@@ -144,7 +168,7 @@ export default function VerifiedEmailInput({
       {/* Input Field with Inline Indicator Beacon */}
       <div className="relative flex items-center">
         <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-        
+
         <input
           type="email"
           value={emailInput}
@@ -158,7 +182,9 @@ export default function VerifiedEmailInput({
           className={`w-full bg-[#090d16] border rounded-xl pl-10 pr-10 py-2.5 text-xs text-slate-100 placeholder-slate-600 outline-none transition-all ${
             isVerified
               ? 'border-emerald-500/50 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30'
-              : validationState === 'invalid_domain' || validationState === 'already_in_team'
+              : validationState === 'invalid_domain' ||
+                validationState === 'already_in_team' ||
+                validationState === 'google_not_found'
               ? 'border-amber-500/50 focus:border-amber-500 focus:ring-1 focus:ring-amber-500/30'
               : 'border-[#1a2234] focus:border-blue-500/60 focus:ring-1 focus:ring-blue-500/20'
           }`}
@@ -169,10 +195,12 @@ export default function VerifiedEmailInput({
           {isValidating ? (
             <Loader2 className="w-4 h-4 animate-spin text-blue-400" />
           ) : isVerified ? (
-            <div className="flex items-center gap-1.5" title="Organization email verified">
+            <div className="flex items-center gap-1.5" title="Google Workspace Account Verified">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 ring-4 ring-emerald-500/20 shadow-sm shadow-emerald-500/50 animate-pulse" />
             </div>
-          ) : validationState === 'invalid_domain' || validationState === 'already_in_team' ? (
+          ) : validationState === 'invalid_domain' ||
+            validationState === 'already_in_team' ||
+            validationState === 'google_not_found' ? (
             <AlertCircle className="w-4 h-4 text-amber-400" />
           ) : null}
         </div>
@@ -184,24 +212,29 @@ export default function VerifiedEmailInput({
           {isValidating ? (
             <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
               <Loader2 className="w-3 h-3 animate-spin text-blue-400" />
-              <span>Verifying organization directory...</span>
+              <span>Verifying with Google Workspace...</span>
             </div>
-          ) : validationState === 'verified_existing' && matchedUser ? (
+          ) : isVerified && matchedUser ? (
             <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[11px] font-medium">
-              <UserCheck className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
               <span>
-                Colleague found: <strong className="text-white font-semibold">{matchedUser.name}</strong>
+                Google Account Verified:{' '}
+                <strong className="text-white font-semibold">
+                  {matchedUser.name || matchedUser.email}
+                </strong>
               </span>
               {matchedUser.teamName && (
                 <span className="text-[10px] text-emerald-500 font-normal">
-                  (In team: {matchedUser.teamName})
+                  (Assigned to {matchedUser.teamName})
                 </span>
               )}
             </div>
-          ) : validationState === 'verified_new' ? (
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[11px] font-medium">
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
-              <span>Authorized organization account (@{ORG_DOMAIN})</span>
+          ) : validationState === 'google_not_found' ? (
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[11px] font-medium">
+              <AlertCircle className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+              <span>
+                {errorMessage || `User does not exist in Google Workspace (@${ORG_DOMAIN})`}
+              </span>
             </div>
           ) : validationState === 'already_in_team' ? (
             <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[11px] font-medium">
@@ -215,7 +248,7 @@ export default function VerifiedEmailInput({
             </div>
           ) : validationState === 'incomplete' && emailInput.includes('@') ? (
             <div className="text-[11px] text-slate-500">
-              Complete typing colleague's email (@{ORG_DOMAIN})
+              Complete typing colleague&apos;s email (@{ORG_DOMAIN})
             </div>
           ) : null}
         </div>

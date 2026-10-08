@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth/server';
 import { getAllUsers, getAllTeams, isSuperadminEmail, isEmailInOrganization } from '@/lib/firestore';
+import { verifyGoogleWorkspaceUser, formatNameFromEmail } from '@/lib/google-workspace';
 import type { SearchUserItem } from '@/types/auth';
 
 export const dynamic = 'force-dynamic';
@@ -25,16 +26,40 @@ export async function GET(request: Request) {
       teamMap.set(t.id, t.name);
     }
 
-    // Direct single email lookup for real-time validation
+    // Direct single email lookup for real-time validation via Google Workspace DWD
     if (lookupEmail) {
       const isOrgEmail = isEmailInOrganization(lookupEmail);
+      if (!isOrgEmail) {
+        return NextResponse.json({
+          isOrgEmail: false,
+          existsOnGoogle: false,
+          googleVerified: true,
+          user: null,
+          error: 'Must use your organization domain (@foodgroup.ph)',
+        });
+      }
+
+      const googleCheck = await verifyGoogleWorkspaceUser(lookupEmail);
+      if (!googleCheck.exists) {
+        return NextResponse.json({
+          isOrgEmail: true,
+          existsOnGoogle: false,
+          googleVerified: googleCheck.verified,
+          user: null,
+          error: googleCheck.error || 'User does not exist in Google Workspace organization',
+        });
+      }
+
       const user = users.find((u) => u.email.toLowerCase() === lookupEmail);
       return NextResponse.json({
-        isOrgEmail,
+        isOrgEmail: true,
+        existsOnGoogle: true,
+        googleVerified: true,
+        isExistingMember: !!user,
         user: user
           ? {
               email: user.email,
-              name: user.name || user.email.split('@')[0],
+              name: user.name || googleCheck.name || user.email.split('@')[0],
               avatarUrl: user.avatarUrl,
               teamId: user.teamId,
               teamName: user.teamId ? teamMap.get(user.teamId) || user.teamId : null,
@@ -42,7 +67,16 @@ export async function GET(request: Request) {
               status: user.status,
               isSuperadmin: isSuperadminEmail(user.email),
             }
-          : null,
+          : {
+              email: lookupEmail,
+              name: googleCheck.name || formatNameFromEmail(lookupEmail),
+              avatarUrl: null,
+              teamId: null,
+              teamName: null,
+              teamRole: null,
+              status: 'unassigned',
+              isSuperadmin: isSuperadminEmail(lookupEmail),
+            },
       });
     }
 

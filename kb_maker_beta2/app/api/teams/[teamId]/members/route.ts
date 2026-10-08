@@ -8,6 +8,7 @@ import {
   isEmailInOrganization,
   addAuditLog,
 } from '@/lib/firestore';
+import { verifyGoogleWorkspaceUser, formatNameFromEmail } from '@/lib/google-workspace';
 import type { TeamRole } from '@/types/auth';
 
 export const dynamic = 'force-dynamic';
@@ -75,11 +76,21 @@ export async function POST(
       return NextResponse.json({ error: 'Invalid email format' }, { status: 400 });
     }
 
-    // 2. Organization domain verification
+    // 2. Organization domain verification & Google Workspace verification
     if (!isEmailInOrganization(normalizedEmail)) {
       return NextResponse.json(
         {
           error: `Email domain does not belong to authorized organization domain(s).`,
+        },
+        { status: 400 }
+      );
+    }
+
+    const googleCheck = await verifyGoogleWorkspaceUser(normalizedEmail);
+    if (!googleCheck.exists) {
+      return NextResponse.json(
+        {
+          error: googleCheck.error || 'User does not exist in Google Workspace organization.',
         },
         { status: 400 }
       );
@@ -129,6 +140,7 @@ export async function POST(
       teamId: params.teamId,
       teamRole: assignedRole,
       status: 'active',
+      name: existingUser?.name || googleCheck.name || formatNameFromEmail(normalizedEmail),
     });
 
     // If assigning admin, also add to team's adminEmails array if not present
