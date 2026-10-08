@@ -578,7 +578,7 @@ export default function DatabricksManagerModal({
             <button
               onClick={handleManualSync}
               disabled={isManualSyncing || assistantSyncState === "UPDATING" || isAssistantSyncing}
-              className="mb-1.5 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium text-slate-600 hover:text-blue-600 hover:bg-blue-50 border border-slate-200 transition-colors disabled:opacity-50"
+              className="mb-1.5 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium text-slate-600 hover:text-blue-600 hover:bg-blue-500/10 border border-slate-200 hover:border-blue-200 transition-colors disabled:opacity-50"
               title="Trigger Knowledge Assistant vector index sync"
             >
               <RefreshCw className={`w-3 h-3 ${isManualSyncing || assistantSyncState === "UPDATING" || isAssistantSyncing ? "animate-spin" : ""}`} />

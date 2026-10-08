@@ -50,6 +50,11 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+::selection {
+  background-color: #2563eb;
+  color: #ffffff;
+}
+
 /* ── Fluid Drag & Drop Zone ─────────────────────────────────────────────────── */
 @keyframes pulse-subtle {
   0%, 100% { border-color: var(--color-accent); transform: scale(1); }

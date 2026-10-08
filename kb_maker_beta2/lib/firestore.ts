@@ -111,6 +111,13 @@ export async function upsertUserDoc(
   }
 }
 
+export async function getAllUsers(): Promise<UserDocument[]> {
+  const db = getFirestoreDb();
+  const snapshot = await db.collection('users').get();
+  return snapshot.docs.map((doc) => doc.data() as UserDocument);
+}
+
+
 // ── Team Management ──────────────────────────────────────────────────────────
 
 export async function getTeamDoc(teamId: string): Promise<TeamDocument | null> {

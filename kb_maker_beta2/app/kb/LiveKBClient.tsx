@@ -794,7 +794,7 @@ export default function LiveKBClient() {
                         {!file.readOnly ? (
                           <button
                             onClick={(e) => promptDeleteConfirmation(e, file.path)}
-                            className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all cursor-pointer"
+                            className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-red-600 hover:bg-red-500/10 rounded-lg transition-all cursor-pointer"
                             title="Delete from Databricks"
                           >
                             <Trash2 className="w-3.5 h-3.5" />

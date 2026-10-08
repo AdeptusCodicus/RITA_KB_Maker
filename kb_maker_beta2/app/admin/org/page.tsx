@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import Sidebar from '@/components/Sidebar';
 import { useAuth } from '@/components/AuthProvider';
+import UserCombobox from '@/components/UserCombobox';
 import type { TeamDocument } from '@/types/auth';
 
 interface EnrichedTeam extends TeamDocument {
@@ -133,7 +134,7 @@ export default function SuperadminOrgPage() {
   });
 
   return (
-    <div className="flex h-screen bg-[#070a11] text-slate-100 antialiased overflow-hidden selection:bg-blue-600 selection:text-white">
+    <div className="flex h-screen bg-[#070a11] text-slate-100 antialiased overflow-hidden">
       <Sidebar />
 
       <main className="flex-1 flex flex-col h-full overflow-hidden bg-[#0a0e1a]">
@@ -358,24 +359,13 @@ export default function SuperadminOrgPage() {
                   />
                 </div>
 
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                    Assign Initial Team Admin Email
-                  </label>
-                  <div className="relative">
-                    <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                    <input
-                      type="email"
-                      value={adminEmail}
-                      onChange={(e) => setAdminEmail(e.target.value)}
-                      placeholder="admin@yourcompany.com"
-                      className="w-full bg-[#090d16] border border-[#1a2234] rounded-xl pl-9 pr-3 py-2 text-xs text-slate-100 placeholder-slate-600 outline-none focus:border-blue-500/60"
-                    />
-                  </div>
-                  <p className="text-[10px] text-slate-500 mt-1">
-                    This user will receive Team Admin rights to manage team members and review audit logs.
-                  </p>
-                </div>
+                <UserCombobox
+                  label="Assign Initial Team Admin"
+                  placeholder="Search colleague by name or Google email..."
+                  value={adminEmail}
+                  onChange={(email) => setAdminEmail(email)}
+                  helperText="Search colleagues across your organization, or input an email to invite."
+                />
 
                 <div className="pt-2 flex items-center justify-end gap-2">
                   <button

@@ -90,3 +90,15 @@ export interface AuthSession {
   role: UserRole;
   status: 'active' | 'unassigned' | 'unauthenticated';
 }
+
+export interface SearchUserItem {
+  email: string;
+  name: string;
+  avatarUrl?: string;
+  teamId: string | null;
+  teamName?: string | null;
+  teamRole: TeamRole | null;
+  status: string;
+  isSuperadmin?: boolean;
+}
+

@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { getAllDrafts, deleteDraft, getActiveDraftId, setActiveDraftId } from '@/lib/drafts';
 import { useAuth } from '@/components/AuthProvider';
+import AccountModal from './AccountModal';
 import type { KBDraft } from '@/types/kb';
 
 function formatRelativeTime(dateStr: string): string {
@@ -54,6 +55,7 @@ export default function Sidebar() {
   const [kbFileCount, setKbFileCount] = useState<number | null>(null);
   const [kbSyncState, setKbSyncState] = useState<string>('UNKNOWN');
   const [kbVolumePath, setKbVolumePath] = useState<string>('');
+  const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
   const syncPollTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const canCreate = isSuperadmin || role === 'admin' || role === 'editor';
@@ -265,7 +267,7 @@ export default function Sidebar() {
           </div>
         </div>
         <span className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
-          Beta 2
+          Beta 3
         </span>
       </div>
 
@@ -508,13 +510,17 @@ export default function Sidebar() {
 
       {/* User Identity Profile Footer */}
       <div className="p-3 border-t border-[#1a2234] bg-[#070a11]">
-        <div className="flex items-center justify-between p-2 rounded-xl bg-[#0e1422] border border-[#1a2234]">
+        <div
+          onClick={() => setIsAccountModalOpen(true)}
+          className="flex items-center justify-between p-2 rounded-xl bg-[#0e1422] hover:bg-[#131b2e] border border-[#1a2234] hover:border-blue-500/30 transition-all cursor-pointer group"
+          title="Manage account & workspace permissions"
+        >
           <div className="flex items-center gap-2 min-w-0">
-            <div className="w-7 h-7 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center text-xs font-semibold text-slate-200 flex-shrink-0">
+            <div className="w-7 h-7 rounded-lg bg-slate-800 group-hover:bg-blue-600/20 border border-slate-700 group-hover:border-blue-500/40 flex items-center justify-center text-xs font-semibold text-slate-200 group-hover:text-blue-300 flex-shrink-0 transition-colors">
               {session?.name ? session.name.charAt(0).toUpperCase() : session?.email?.charAt(0).toUpperCase() || 'U'}
             </div>
             <div className="min-w-0">
-              <p className="text-xs font-medium text-slate-200 truncate leading-tight">
+              <p className="text-xs font-medium text-slate-200 group-hover:text-white truncate leading-tight transition-colors">
                 {session?.name || session?.email?.split('@')[0] || 'User'}
               </p>
               <div className="flex items-center gap-1.5 mt-0.5">
@@ -538,18 +544,24 @@ export default function Sidebar() {
             </div>
           </div>
 
-          {/* Quick Dev Switch / Logout button in dev mode */}
-          {switchDevEmail && (
-            <button
-              onClick={() => switchDevEmail(null)}
-              className="p-1 text-slate-500 hover:text-slate-300 hover:bg-slate-800 rounded transition-colors"
-              title="Sign out / Switch account"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsAccountModalOpen(true);
+            }}
+            className="p-1 text-slate-500 hover:text-slate-300 hover:bg-slate-800 rounded transition-colors"
+            title="Account & Session Settings"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
+
+      <AccountModal
+        isOpen={isAccountModalOpen}
+        onClose={() => setIsAccountModalOpen(false)}
+      />
     </aside>
   );
 }

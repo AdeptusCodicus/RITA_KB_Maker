@@ -27,14 +27,26 @@ export async function getAuthenticatedEmailFromHeaders(
   // 2. Client-provided dev switcher cookie / header (for local testing outside IAP)
   const devHeader = h.get('x-dev-user-email');
   if (devHeader && process.env.NODE_ENV !== 'production') {
-    return devHeader.trim().toLowerCase();
+    const val = devHeader.trim().toLowerCase();
+    if (val === '__signed_out__') {
+      return null;
+    }
+    if (val) {
+      return val;
+    }
   }
 
   const cookieHeader = h.get('cookie');
   if (cookieHeader && process.env.NODE_ENV !== 'production') {
     const match = cookieHeader.match(/kb_dev_email=([^;]+)/);
     if (match && match[1]) {
-      return decodeURIComponent(match[1]).trim().toLowerCase();
+      const val = decodeURIComponent(match[1]).trim().toLowerCase();
+      if (val === '__signed_out__') {
+        return null;
+      }
+      if (val) {
+        return val;
+      }
     }
   }
 

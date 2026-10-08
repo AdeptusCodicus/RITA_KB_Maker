@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import Sidebar from '@/components/Sidebar';
 import { useAuth } from '@/components/AuthProvider';
+import UserCombobox from '@/components/UserCombobox';
 import type { TeamMemberItem, TeamRole } from '@/types/auth';
 
 export default function TeamMembersPage() {
@@ -157,7 +158,7 @@ export default function TeamMembersPage() {
   });
 
   return (
-    <div className="flex h-screen bg-[#070a11] text-slate-100 antialiased overflow-hidden selection:bg-blue-600 selection:text-white">
+    <div className="flex h-screen bg-[#070a11] text-slate-100 antialiased overflow-hidden">
       <Sidebar />
 
       <main className="flex-1 flex flex-col h-full overflow-hidden bg-[#0a0e1a]">
@@ -373,25 +374,16 @@ export default function TeamMembersPage() {
                   </div>
                 )}
 
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                    Google Workspace Email Address
-                  </label>
-                  <div className="relative">
-                    <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                    <input
-                      type="email"
-                      required
-                      value={inputEmail}
-                      onChange={(e) => setInputEmail(e.target.value)}
-                      placeholder="colleague@yourcompany.com"
-                      className="w-full bg-[#090d16] border border-[#1a2234] rounded-xl pl-9 pr-3 py-2 text-xs text-slate-100 placeholder-slate-600 outline-none focus:border-blue-500/60"
-                    />
-                  </div>
-                  <p className="text-[10px] text-slate-500 mt-1">
-                    System verifies that the user belongs to the organization and is not already in another team.
-                  </p>
-                </div>
+                <UserCombobox
+                  label="Search & Select Colleague"
+                  placeholder="Type name, letters, or Google email..."
+                  value={inputEmail}
+                  onChange={(email) => setInputEmail(email)}
+                  currentTeamId={session?.teamId || undefined}
+                  required
+                  autoFocus
+                  helperText="Search colleagues across your organization directory, or enter a new email."
+                />
 
                 <div>
                   <label className="block text-xs font-medium text-slate-300 mb-1.5">

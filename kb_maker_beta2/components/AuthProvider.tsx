@@ -4,6 +4,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { Loader2, ShieldCheck, Sparkles, LogIn } from 'lucide-react';
 import type { AuthSession, UserRole } from '@/types/auth';
 import AccessPendingGatekeeper from './AccessPendingGatekeeper';
+import UserCombobox from './UserCombobox';
 
 interface AuthContextType {
   session: AuthSession | null;
@@ -34,6 +35,7 @@ export function useAuth() {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<AuthSession | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loginInput, setLoginInput] = useState('');
 
   const fetchSession = useCallback(async () => {
     try {
@@ -144,31 +146,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 block mb-2">
               Development Sign-In Simulator
             </span>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                const form = e.target as HTMLFormElement;
-                const input = form.elements.namedItem('devEmail') as HTMLInputElement;
-                if (input && input.value) {
-                  switchDevEmail(input.value);
-                }
-              }}
-              className="flex gap-2"
-            >
-              <input
-                type="email"
-                name="devEmail"
-                placeholder="admin@your-company.com"
-                required
-                className="flex-1 bg-[#090d16] border border-[#1a2234] rounded-lg px-2.5 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-blue-500/60"
-              />
+            <div className="flex gap-2 items-start">
+              <div className="flex-1">
+                <UserCombobox
+                  value={loginInput}
+                  onChange={(email) => setLoginInput(email)}
+                  placeholder="Select colleague or type email..."
+                />
+              </div>
               <button
-                type="submit"
-                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+                type="button"
+                onClick={() => {
+                  if (loginInput.trim()) {
+                    switchDevEmail(loginInput.trim());
+                  }
+                }}
+                disabled={!loginInput.trim()}
+                className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-xs font-semibold rounded-xl transition-colors cursor-pointer disabled:opacity-50 flex-shrink-0 shadow-md shadow-blue-600/20"
               >
                 Sign In
               </button>
-            </form>
+            </div>
           </div>
         </div>
 

@@ -1,0 +1,59 @@
+import { NextResponse } from 'next/server';
+import { requireAuth } from '@/lib/auth/server';
+import { getAllUsers, getAllTeams, isSuperadminEmail } from '@/lib/firestore';
+import type { SearchUserItem } from '@/types/auth';
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
+export async function GET(request: Request) {
+  try {
+    const { errorResponse } = await requireAuth(request.headers);
+    if (errorResponse) return errorResponse;
+
+    const { searchParams } = new URL(request.url);
+    const q = (searchParams.get('q') || '').trim().toLowerCase();
+
+    const [users, teams] = await Promise.all([
+      getAllUsers(),
+      getAllTeams(),
+    ]);
+
+    const teamMap = new Map<string, string>();
+    for (const t of teams) {
+      teamMap.set(t.id, t.name);
+    }
+
+    let filtered = users;
+    if (q) {
+      filtered = users.filter((u) => {
+        const emailMatch = u.email.toLowerCase().includes(q);
+        const nameMatch = u.name ? u.name.toLowerCase().includes(q) : false;
+        return emailMatch || nameMatch;
+      });
+    }
+
+    const searchResults: SearchUserItem[] = filtered.map((u) => {
+      const isSuper = isSuperadminEmail(u.email);
+      return {
+        email: u.email,
+        name: u.name || u.email.split('@')[0],
+        avatarUrl: u.avatarUrl,
+        teamId: u.teamId,
+        teamName: u.teamId ? teamMap.get(u.teamId) || u.teamId : null,
+        teamRole: u.teamRole,
+        status: u.status,
+        isSuperadmin: isSuper,
+      };
+    });
+
+    // Limit to 50 results
+    return NextResponse.json({ users: searchResults.slice(0, 50) });
+  } catch (error) {
+    console.error('Error in /api/users/search GET:', error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Failed to search users' },
+      { status: 500 }
+    );
+  }
+}

@@ -36,8 +36,14 @@ export async function POST(request: Request) {
     const response = NextResponse.json({ success: true, email: devEmail });
 
     if (!devEmail) {
-      // Clear cookie
-      response.cookies.delete('kb_dev_email');
+      // Set explicit signed-out marker cookie
+      response.cookies.set({
+        name: 'kb_dev_email',
+        value: '__signed_out__',
+        path: '/',
+        maxAge: 60 * 60 * 24 * 7,
+        sameSite: 'lax',
+      });
     } else {
       // Set cookie for 7 days
       response.cookies.set({

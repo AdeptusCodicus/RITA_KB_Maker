@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { ShieldAlert, RefreshCw, Mail, CheckCircle2, LogOut, Sparkles } from 'lucide-react';
 import type { AuthSession } from '@/types/auth';
+import UserCombobox from './UserCombobox';
 
 interface AccessPendingGatekeeperProps {
   session: AuthSession;
@@ -35,7 +36,7 @@ export default function AccessPendingGatekeeper({
   };
 
   return (
-    <div className="min-h-screen bg-[#070a11] text-slate-200 flex flex-col justify-between p-6 antialiased selection:bg-blue-600 selection:text-white">
+    <div className="min-h-screen bg-[#070a11] text-slate-200 flex flex-col justify-between p-6 antialiased">
       {/* Header */}
       <div className="max-w-4xl w-full mx-auto flex items-center justify-between">
         <div className="flex items-center space-x-2.5">
@@ -48,9 +49,21 @@ export default function AccessPendingGatekeeper({
           </div>
         </div>
 
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#0d1424] border border-[#1a2234] text-xs text-slate-400">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-          <span className="font-mono text-[11px]">{session.email}</span>
+        <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#0d1424] border border-[#1a2234] text-xs text-slate-400">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="font-mono text-[11px]">{session.email}</span>
+          </div>
+          {onSwitchDevEmail && (
+            <button
+              onClick={() => onSwitchDevEmail(null)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#0d1424] hover:bg-[#131b2e] border border-[#1a2234] text-xs text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
+              title="Sign Out / Switch Account"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Sign Out</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -98,21 +111,28 @@ export default function AccessPendingGatekeeper({
             <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 block mb-2">
               Development Switcher
             </span>
-            <form onSubmit={handleDevSwitch} className="flex gap-2">
-              <input
-                type="email"
-                placeholder="test@your-domain.com"
-                value={devInput}
-                onChange={(e) => setDevInput(e.target.value)}
-                className="flex-1 bg-[#090d16] border border-[#1a2234] rounded-lg px-2.5 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-blue-500/60"
-              />
+            <div className="flex gap-2 items-start">
+              <div className="flex-1">
+                <UserCombobox
+                  value={devInput}
+                  onChange={(email) => setDevInput(email)}
+                  placeholder="Select colleague or type email..."
+                />
+              </div>
               <button
-                type="submit"
-                className="px-3 py-1.5 bg-[#19243b] hover:bg-[#22314d] border border-[#2a3c61] text-xs font-medium text-slate-200 rounded-lg transition-colors cursor-pointer"
+                type="button"
+                onClick={async () => {
+                  if (devInput.trim()) {
+                    await onSwitchDevEmail(devInput.trim());
+                    setDevInput('');
+                  }
+                }}
+                disabled={!devInput.trim()}
+                className="px-3.5 py-2 bg-[#19243b] hover:bg-[#22314d] border border-[#2a3c61] text-xs font-medium text-slate-200 disabled:opacity-50 rounded-xl transition-colors cursor-pointer flex-shrink-0"
               >
                 Switch
               </button>
-            </form>
+            </div>
           </div>
         )}
       </div>
