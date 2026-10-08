@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import {
   Users,
   UserPlus,
@@ -20,10 +21,15 @@ import {
 import Sidebar from '@/components/Sidebar';
 import { useAuth } from '@/components/AuthProvider';
 import VerifiedEmailInput from '@/components/VerifiedEmailInput';
-import type { TeamMemberItem, TeamRole } from '@/types/auth';
+import type { TeamMemberItem, TeamRole, TeamDocument } from '@/types/auth';
 
-export default function TeamMembersPage() {
+function TeamMembersContent() {
   const { session, role, isSuperadmin } = useAuth();
+  const searchParams = useSearchParams();
+  const queryTeamId = searchParams.get('teamId');
+
+  const [teams, setTeams] = useState<TeamDocument[]>([]);
+  const [selectedTeamId, setSelectedTeamId] = useState<string>(queryTeamId || session?.teamId || '');
   const [members, setMembers] = useState<TeamMemberItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -38,14 +44,38 @@ export default function TeamMembersPage() {
 
   const canManageMembers = isSuperadmin || role === 'admin';
 
+  // Load teams list if superadmin
+  useEffect(() => {
+    if (isSuperadmin) {
+      fetch(`/api/teams?_t=${Date.now()}`)
+        .then((r) => r.json())
+        .then((d) => {
+          const loaded: TeamDocument[] = d.teams || [];
+          setTeams(loaded);
+          if (!selectedTeamId && loaded.length > 0) {
+            setSelectedTeamId(queryTeamId || loaded[0].id);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [isSuperadmin, queryTeamId, selectedTeamId]);
+
+  useEffect(() => {
+    if (queryTeamId) {
+      setSelectedTeamId(queryTeamId);
+    }
+  }, [queryTeamId]);
+
+  const activeTeamId = selectedTeamId || session?.teamId || '';
+
   const fetchMembers = useCallback(async () => {
-    if (!session?.teamId && !isSuperadmin) {
+    const targetTeam = activeTeamId;
+    if (!targetTeam) {
       setLoading(false);
       return;
     }
     setLoading(true);
     try {
-      const targetTeam = session?.teamId || 'global';
       const res = await fetch(`/api/teams/${targetTeam}/members?_t=${Date.now()}`);
       if (res.ok) {
         const data = await res.json();
@@ -56,7 +86,7 @@ export default function TeamMembersPage() {
     } finally {
       setLoading(false);
     }
-  }, [session?.teamId, isSuperadmin]);
+  }, [activeTeamId]);
 
   useEffect(() => {
     fetchMembers();
@@ -70,7 +100,8 @@ export default function TeamMembersPage() {
     setAddError(null);
 
     try {
-      const targetTeam = session?.teamId || 'global';
+      const targetTeam = activeTeamId;
+      if (!targetTeam) return;
       const res = await fetch(`/api/teams/${targetTeam}/members`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -101,7 +132,8 @@ export default function TeamMembersPage() {
 
   const handleRoleChange = async (memberEmail: string, newRole: TeamRole) => {
     try {
-      const targetTeam = session?.teamId || 'global';
+      const targetTeam = activeTeamId;
+      if (!targetTeam) return;
       const res = await fetch(
         `/api/teams/${targetTeam}/members/${encodeURIComponent(memberEmail)}`,
         {
@@ -130,7 +162,8 @@ export default function TeamMembersPage() {
     if (!confirm(`Are you sure you want to remove ${memberEmail} from this team?`)) return;
 
     try {
-      const targetTeam = session?.teamId || 'global';
+      const targetTeam = activeTeamId;
+      if (!targetTeam) return;
       const res = await fetch(
         `/api/teams/${targetTeam}/members/${encodeURIComponent(memberEmail)}`,
         {
@@ -158,6 +191,8 @@ export default function TeamMembersPage() {
     );
   });
 
+  const currentTeamObj = teams.find((t) => t.id === activeTeamId);
+
   return (
     <div className="flex h-screen bg-[#070a11] text-slate-100 antialiased overflow-hidden">
       <Sidebar />
@@ -172,9 +207,23 @@ export default function TeamMembersPage() {
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-base font-semibold text-white tracking-tight">Team Teammates & Roles</h1>
-                <span className="px-2 py-0.5 rounded-full bg-indigo-900/30 border border-indigo-500/30 text-[11px] font-medium text-indigo-300">
-                  {session?.teamName || 'Your Team'}
-                </span>
+                {isSuperadmin && teams.length > 0 ? (
+                  <select
+                    value={activeTeamId}
+                    onChange={(e) => setSelectedTeamId(e.target.value)}
+                    className="px-2.5 py-0.5 rounded-full bg-indigo-900/40 border border-indigo-500/50 text-[11px] font-medium text-indigo-200 outline-none cursor-pointer"
+                  >
+                    {teams.map((t) => (
+                      <option key={t.id} value={t.id} className="bg-[#0d1424] text-slate-200">
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className="px-2 py-0.5 rounded-full bg-indigo-900/30 border border-indigo-500/30 text-[11px] font-medium text-indigo-300">
+                    {currentTeamObj?.name || session?.teamName || 'Your Team'}
+                  </span>
+                )}
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
                 {canManageMembers
@@ -475,5 +524,22 @@ export default function TeamMembersPage() {
         )}
       </main>
     </div>
+  );
+}
+
+export default function TeamMembersPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex h-screen bg-[#070a11] text-slate-100 antialiased overflow-hidden">
+          <Sidebar />
+          <main className="flex-1 flex items-center justify-center bg-[#0a0e1a]">
+            <RefreshCw className="w-6 h-6 animate-spin text-blue-500" />
+          </main>
+        </div>
+      }
+    >
+      <TeamMembersContent />
+    </Suspense>
   );
 }

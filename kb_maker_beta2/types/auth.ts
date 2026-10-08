@@ -89,6 +89,9 @@ export interface AuthSession {
   teamName: string | null;
   role: UserRole;
   status: 'active' | 'unassigned' | 'unauthenticated';
+  isSimulating?: boolean;
+  realEmail?: string | null;
+  simulatedRole?: UserRole;
 }
 
 export interface SearchUserItem {

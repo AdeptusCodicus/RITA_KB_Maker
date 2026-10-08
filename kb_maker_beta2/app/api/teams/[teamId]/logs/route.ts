@@ -28,7 +28,12 @@ export async function GET(
     const { searchParams } = new URL(request.url);
     const limit = parseInt(searchParams.get('limit') || '50', 10);
 
-    const logs = await getTeamAuditLogs(params.teamId, limit);
+    const targetTeamId =
+      session.isSuperadmin && (params.teamId === 'global' || params.teamId === 'all')
+        ? 'all'
+        : params.teamId;
+
+    const logs = await getTeamAuditLogs(targetTeamId, limit);
     return NextResponse.json({ logs });
   } catch (error) {
     return NextResponse.json(

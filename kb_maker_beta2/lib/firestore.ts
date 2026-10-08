@@ -182,10 +182,14 @@ export async function getTeamKBs(teamId: string): Promise<TeamKBRecord[]> {
   const snapshot = await db
     .collection('knowledge_bases')
     .where('teamId', '==', teamId)
-    .orderBy('updatedAt', 'desc')
     .get();
 
-  return snapshot.docs.map((doc) => doc.data() as TeamKBRecord);
+  const records = snapshot.docs.map((doc) => doc.data() as TeamKBRecord);
+  return records.sort((a, b) => {
+    const timeA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+    const timeB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+    return timeB - timeA;
+  });
 }
 
 export async function getAllKBs(): Promise<TeamKBRecord[]> {
@@ -250,13 +254,25 @@ export async function getTeamAuditLogs(
   limitCount: number = 50
 ): Promise<AuditLogRecord[]> {
   const db = getFirestoreDb();
-  let query = db.collection('audit_logs') as FirebaseFirestore.Query;
   
   if (teamId !== 'all') {
-    query = query.where('teamId', '==', teamId);
+    const snapshot = await db
+      .collection('audit_logs')
+      .where('teamId', '==', teamId)
+      .get();
+
+    const logs = snapshot.docs.map((doc) => doc.data() as AuditLogRecord);
+    return logs
+      .sort((a, b) => {
+        const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+        const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+        return timeB - timeA;
+      })
+      .slice(0, limitCount);
   }
 
-  const snapshot = await query
+  const snapshot = await db
+    .collection('audit_logs')
     .orderBy('timestamp', 'desc')
     .limit(limitCount)
     .get();

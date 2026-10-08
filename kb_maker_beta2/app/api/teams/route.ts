@@ -24,15 +24,27 @@ export async function GET(request: Request) {
     // Superadmins can retrieve all teams with summaries
     if (session.isSuperadmin) {
       const teams = await getAllTeams();
-      // Enrich with member count
+      // Enrich with member and KB counts safely
       const enriched = await Promise.all(
         teams.map(async (t) => {
-          const members = await getTeamMembers(t.id);
-          const kbs = await getTeamKBs(t.id);
+          let memberCount = 0;
+          let kbCount = 0;
+          try {
+            const members = await getTeamMembers(t.id);
+            memberCount = members.length;
+          } catch (e) {
+            console.error(`Error loading members for team ${t.id}:`, e);
+          }
+          try {
+            const kbs = await getTeamKBs(t.id);
+            kbCount = kbs.length;
+          } catch (e) {
+            console.error(`Error loading KBs for team ${t.id}:`, e);
+          }
           return {
             ...t,
-            memberCount: members.length,
-            kbCount: kbs.length,
+            memberCount,
+            kbCount,
           };
         })
       );
@@ -49,15 +61,27 @@ export async function GET(request: Request) {
       return NextResponse.json({ teams: [] });
     }
 
-    const members = await getTeamMembers(team.id);
-    const kbs = await getTeamKBs(team.id);
+    let memberCount = 0;
+    let kbCount = 0;
+    try {
+      const members = await getTeamMembers(team.id);
+      memberCount = members.length;
+    } catch (e) {
+      console.error(`Error loading members for team ${team.id}:`, e);
+    }
+    try {
+      const kbs = await getTeamKBs(team.id);
+      kbCount = kbs.length;
+    } catch (e) {
+      console.error(`Error loading KBs for team ${team.id}:`, e);
+    }
 
     return NextResponse.json({
       teams: [
         {
           ...team,
-          memberCount: members.length,
-          kbCount: kbs.length,
+          memberCount,
+          kbCount,
         },
       ],
     });

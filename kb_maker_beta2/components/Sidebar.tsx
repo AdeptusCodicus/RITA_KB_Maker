@@ -526,7 +526,9 @@ export default function Sidebar() {
               <div className="flex items-center gap-1.5 mt-0.5">
                 <span
                   className={`text-[9px] font-semibold uppercase px-1.5 py-0.2 rounded font-mono border ${
-                    isSuperadmin
+                    session?.isSimulating
+                      ? 'bg-purple-500/20 text-purple-300 border-purple-500/40'
+                      : isSuperadmin
                       ? 'bg-purple-500/10 text-purple-300 border-purple-500/20'
                       : role === 'admin'
                       ? 'bg-indigo-500/10 text-indigo-300 border-indigo-500/20'
@@ -535,7 +537,7 @@ export default function Sidebar() {
                       : 'bg-slate-500/10 text-slate-400 border-slate-500/20'
                   }`}
                 >
-                  {isSuperadmin ? 'Superadmin' : role}
+                  {session?.isSimulating ? `SIM: ${role}` : isSuperadmin ? 'Superadmin' : role}
                 </span>
                 <span className="text-[10px] text-slate-500 truncate max-w-[80px]">
                   {session?.teamName || 'Org'}

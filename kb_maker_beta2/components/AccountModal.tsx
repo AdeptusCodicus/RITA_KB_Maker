@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   User,
@@ -13,10 +13,14 @@ import {
   ExternalLink,
   Shield,
   Layers,
+  Sparkles,
+  RefreshCw,
+  Eye,
+  Sliders,
 } from 'lucide-react';
 import { useAuth } from './AuthProvider';
 import VerifiedEmailInput from './VerifiedEmailInput';
-import type { SearchUserItem } from '@/types/auth';
+import type { TeamDocument, UserRole } from '@/types/auth';
 
 interface AccountModalProps {
   isOpen: boolean;
@@ -24,22 +28,123 @@ interface AccountModalProps {
 }
 
 export default function AccountModal({ isOpen, onClose }: AccountModalProps) {
-  const { session, switchDevEmail, isSuperadmin, role, teamName } = useAuth();
+  const { session, switchDevEmail, refreshSession, isSuperadmin, role, teamName } = useAuth();
+  const [activeTab, setActiveTab] = useState<'role' | 'user'>('role');
+  
+  // Role Simulation state
+  const [simRole, setSimRole] = useState<UserRole>('editor');
+  const [teams, setTeams] = useState<TeamDocument[]>([]);
+  const [selectedTeamId, setSelectedTeamId] = useState<string>('');
+  const [isSimulatingRole, setIsSimulatingRole] = useState(false);
+
+  // User Simulation state
   const [selectedEmail, setSelectedEmail] = useState('');
   const [isEmailValid, setIsEmailValid] = useState(false);
-  const [isSwitching, setIsSwitching] = useState(false);
+  const [isSwitchingUser, setIsSwitchingUser] = useState(false);
+
+  // General state
+  const [isExitingSimulation, setIsExitingSimulation] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  // Fetch available teams for the role simulation team selector
+  useEffect(() => {
+    if (!isOpen) return;
+    async function loadTeams() {
+      try {
+        const res = await fetch(`/api/teams?_t=${Date.now()}`);
+        if (res.ok) {
+          const data = await res.json();
+          const loaded: TeamDocument[] = data.teams || [];
+          setTeams(loaded);
+          if (loaded.length > 0 && !selectedTeamId) {
+            setSelectedTeamId(loaded[0].id);
+          }
+        }
+      } catch (e) {
+        console.error('Failed to load teams for simulation modal:', e);
+      }
+    }
+    loadTeams();
+  }, [isOpen, selectedTeamId]);
 
   if (!isOpen || !session) return null;
 
-  const handleSwitchAccount = async () => {
-    if (!selectedEmail.trim()) return;
-    setIsSwitching(true);
+  const handleSimulateRole = async () => {
+    setIsSimulatingRole(true);
+    setActionError(null);
     try {
-      await switchDevEmail(selectedEmail.trim().toLowerCase());
+      const chosenTeam = teams.find((t) => t.id === selectedTeamId);
+      const res = await fetch('/api/auth/me', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'simulate_role',
+          role: simRole,
+          teamId: simRole === 'unassigned' || simRole === 'superadmin' ? null : selectedTeamId || null,
+          teamName: simRole === 'unassigned' || simRole === 'superadmin' ? null : chosenTeam?.name || null,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setActionError(data.error || 'Failed to apply role simulation');
+        return;
+      }
+
+      await refreshSession();
       onClose();
+    } catch {
+      setActionError('Network error while simulating role');
     } finally {
-      setIsSwitching(false);
+      setIsSimulatingRole(false);
+    }
+  };
+
+  const handleSimulateUser = async () => {
+    if (!selectedEmail.trim()) return;
+    setIsSwitchingUser(true);
+    setActionError(null);
+    try {
+      const res = await fetch('/api/auth/me', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'simulate_user',
+          email: selectedEmail.trim().toLowerCase(),
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setActionError(data.error || 'Failed to simulate user');
+        return;
+      }
+
+      await refreshSession();
+      onClose();
+    } catch {
+      setActionError('Network error while simulating user');
+    } finally {
+      setIsSwitchingUser(false);
+    }
+  };
+
+  const handleExitSimulation = async () => {
+    setIsExitingSimulation(true);
+    setActionError(null);
+    try {
+      await fetch('/api/auth/me', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'clear_simulation' }),
+      });
+      await refreshSession();
+      onClose();
+    } catch {
+      setActionError('Failed to exit simulation');
+    } finally {
+      setIsExitingSimulation(false);
     }
   };
 
@@ -54,7 +159,6 @@ export default function AccountModal({ isOpen, onClose }: AccountModalProps) {
   };
 
   const handleIapSignOut = () => {
-    // Official Google Cloud Identity-Aware Proxy logout endpoint
     window.location.href = '/_gcp_iap/clear_login_cookie';
   };
 
@@ -64,6 +168,8 @@ export default function AccountModal({ isOpen, onClose }: AccountModalProps) {
     ? 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30'
     : role === 'editor'
     ? 'bg-blue-500/15 text-blue-300 border-blue-500/30'
+    : role === 'viewer'
+    ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
     : 'bg-slate-500/15 text-slate-300 border-slate-500/30';
 
   return (
@@ -98,7 +204,13 @@ export default function AccountModal({ isOpen, onClose }: AccountModalProps) {
         </div>
 
         {/* Body */}
-        <div className="p-6 space-y-6 overflow-y-auto max-h-[80vh] custom-scrollbar">
+        <div className="p-6 space-y-5 overflow-y-auto max-h-[80vh] custom-scrollbar">
+          {actionError && (
+            <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs">
+              {actionError}
+            </div>
+          )}
+
           {/* Active Profile Card */}
           <div className="p-4 rounded-xl bg-[#090d16] border border-[#1a2234] space-y-3">
             <div className="flex items-start justify-between gap-4">
@@ -123,71 +235,171 @@ export default function AccountModal({ isOpen, onClose }: AccountModalProps) {
                 </span>
                 <span className="text-[11px] font-medium text-slate-400 flex items-center gap-1">
                   <Building2 className="w-3 h-3 text-slate-500" />
-                  <span className="truncate max-w-[120px]">{teamName || 'Unassigned'}</span>
+                  <span className="truncate max-w-[130px]">{teamName || 'Unassigned'}</span>
                 </span>
               </div>
             </div>
 
-            {/* Permissions Summary Banner */}
-            <div className="pt-3 border-t border-[#1a2234]/60 grid grid-cols-2 gap-2 text-[11px]">
-              <div className="flex items-center gap-1.5 text-slate-400">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
-                <span>Databricks Volume Read/Write</span>
+            {/* Simulation Active Indicator Banner */}
+            {session.isSimulating && (
+              <div className="p-2.5 rounded-lg bg-purple-950/40 border border-purple-500/30 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-xs text-purple-300">
+                  <Eye className="w-3.5 h-3.5 text-purple-400 flex-shrink-0" />
+                  <span>
+                    Simulating as <strong>{role.toUpperCase()}</strong>
+                    {session.realEmail ? ` (Auth: ${session.realEmail})` : ''}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleExitSimulation}
+                  disabled={isExitingSimulation}
+                  className="px-2.5 py-1 rounded-md bg-purple-600 hover:bg-purple-500 text-white text-[11px] font-semibold transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1"
+                >
+                  {isExitingSimulation ? (
+                    <RefreshCw className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <LogOut className="w-3 h-3" />
+                  )}
+                  <span>Exit Simulation</span>
+                </button>
               </div>
-              <div className="flex items-center gap-1.5 text-slate-400">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
-                <span>
-                  {isSuperadmin
-                    ? 'Global Organization Control'
-                    : role === 'admin'
-                    ? 'Team Admin & Audit Logs'
-                    : role === 'editor'
-                    ? 'Knowledge Base Author'
-                    : 'Read-Only Viewer'}
-                </span>
-              </div>
-            </div>
+            )}
           </div>
 
-          {/* Switch Account Section */}
-          <div className="space-y-3">
+          {/* Role Simulation Section */}
+          <div className="space-y-3 pt-1">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+              <label className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
                 <ArrowRightLeft className="w-3.5 h-3.5 text-blue-400" />
-                Switch Account / Role Simulation
+                Role Simulation & Identity Switcher
               </label>
-              <span className="text-[10px] text-slate-500 font-mono">Dev Switcher</span>
+              <div className="flex items-center rounded-lg bg-[#090d16] p-0.5 border border-[#1a2234] text-[10px]">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('role')}
+                  className={`px-2.5 py-0.5 rounded-md font-medium transition-colors cursor-pointer ${
+                    activeTab === 'role'
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  By Role
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('user')}
+                  className={`px-2.5 py-0.5 rounded-md font-medium transition-colors cursor-pointer ${
+                    activeTab === 'user'
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  By User Email
+                </button>
+              </div>
             </div>
 
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Select or type any user within the organization directory to test their role-based workspace views.
-            </p>
+            {activeTab === 'role' ? (
+              <div className="p-3.5 rounded-xl bg-[#090d16] border border-[#1a2234] space-y-3.5">
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-400 mb-1.5">
+                    Select Role to Simulate
+                  </label>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {(['superadmin', 'admin', 'editor', 'viewer', 'unassigned'] as UserRole[]).map((r) => (
+                      <button
+                        key={r}
+                        type="button"
+                        onClick={() => setSimRole(r)}
+                        className={`px-2.5 py-1.5 rounded-lg border text-xs font-medium text-center capitalize transition-all cursor-pointer ${
+                          simRole === r
+                            ? 'bg-blue-600/20 border-blue-500/80 text-white font-semibold'
+                            : 'bg-[#0d1424] border-[#1a2234] text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                        }`}
+                      >
+                        {r}
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
-            <div className="space-y-3">
-              <VerifiedEmailInput
-                value={selectedEmail}
-                onChange={(email, isValid) => {
-                  setSelectedEmail(email);
-                  setIsEmailValid(isValid);
-                }}
-                placeholder="colleague@foodgroup.ph"
-                helperText="Enter any authorized Google account from your organization."
-              />
+                {simRole !== 'unassigned' && simRole !== 'superadmin' && (
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-400 mb-1.5">
+                      Target Team for {simRole.toUpperCase()} Role
+                    </label>
+                    <select
+                      value={selectedTeamId}
+                      onChange={(e) => setSelectedTeamId(e.target.value)}
+                      className="w-full bg-[#0d1424] border border-[#1a2234] rounded-xl px-3 py-2 text-xs text-slate-200 outline-none focus:border-blue-500/60"
+                    >
+                      {teams.length === 0 ? (
+                        <option value="">No teams available (Create a team first)</option>
+                      ) : (
+                        teams.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name} ({t.id})
+                          </option>
+                        ))
+                      )}
+                    </select>
+                  </div>
+                )}
 
-              <button
-                type="button"
-                onClick={handleSwitchAccount}
-                disabled={!selectedEmail.trim() || !isEmailValid || isSwitching}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-xs font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-md shadow-blue-600/20 cursor-pointer"
-              >
-                <ArrowRightLeft className="w-3.5 h-3.5" />
-                <span>{isSwitching ? 'Switching Account...' : 'Switch Identity'}</span>
-              </button>
-            </div>
+                <button
+                  type="button"
+                  onClick={handleSimulateRole}
+                  disabled={isSimulatingRole}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-xs font-semibold transition-all disabled:opacity-40 shadow-md shadow-blue-600/20 cursor-pointer"
+                >
+                  {isSimulatingRole ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Eye className="w-3.5 h-3.5" />
+                  )}
+                  <span>
+                    {isSimulatingRole
+                      ? 'Activating Simulation...'
+                      : `Simulate as ${simRole.toUpperCase()}`}
+                  </span>
+                </button>
+              </div>
+            ) : (
+              <div className="p-3.5 rounded-xl bg-[#090d16] border border-[#1a2234] space-y-3">
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Type any user in the organization directory to test their exact workspace view and team membership.
+                </p>
+
+                <VerifiedEmailInput
+                  value={selectedEmail}
+                  onChange={(email, isValid) => {
+                    setSelectedEmail(email);
+                    setIsEmailValid(isValid);
+                  }}
+                  placeholder="colleague@foodgroup.ph"
+                  helperText="Enter any authorized Google account from your organization."
+                />
+
+                <button
+                  type="button"
+                  onClick={handleSimulateUser}
+                  disabled={!selectedEmail.trim() || !isEmailValid || isSwitchingUser}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-xs font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-md shadow-blue-600/20 cursor-pointer"
+                >
+                  {isSwitchingUser ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <ArrowRightLeft className="w-3.5 h-3.5" />
+                  )}
+                  <span>{isSwitchingUser ? 'Switching...' : 'Simulate User Identity'}</span>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Sign Out Options */}
-          <div className="pt-4 border-t border-[#1a2234] space-y-2.5">
+          <div className="pt-3 border-t border-[#1a2234] space-y-2.5">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-slate-300">Session Controls</span>
               <span className="text-[10px] text-slate-500">End Active Session</span>

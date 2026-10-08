@@ -34,6 +34,7 @@ export default function SuperadminOrgPage() {
   const { session, isSuperadmin } = useAuth();
   const [teams, setTeams] = useState<EnrichedTeam[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
   // Create Team Modal State
@@ -51,14 +52,19 @@ export default function SuperadminOrgPage() {
       return;
     }
     setLoading(true);
+    setLoadError(null);
     try {
       const res = await fetch(`/api/teams?_t=${Date.now()}`);
       if (res.ok) {
         const data = await res.json();
         setTeams(data.teams || []);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setLoadError(data.error || 'Failed to load organization teams');
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('Failed to load organization teams:', e);
+      setLoadError(e?.message || 'Network error loading teams');
     } finally {
       setLoading(false);
     }
@@ -234,6 +240,20 @@ export default function SuperadminOrgPage() {
 
         {/* Teams Grid */}
         <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+          {loadError && (
+            <div className="mb-4 p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                <span>{loadError}</span>
+              </div>
+              <button
+                onClick={fetchTeams}
+                className="px-3 py-1 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-300 font-semibold cursor-pointer"
+              >
+                Retry
+              </button>
+            </div>
+          )}
           {loading ? (
             <div className="h-64 flex flex-col items-center justify-center text-slate-500">
               <RefreshCw className="w-6 h-6 animate-spin text-blue-500 mb-2" />
@@ -299,7 +319,7 @@ export default function SuperadminOrgPage() {
                       Created {new Date(team.createdAt).toLocaleDateString()}
                     </span>
                     <button
-                      onClick={() => router.push('/team/members')}
+                      onClick={() => router.push(`/team/members?teamId=${team.id}`)}
                       className="flex items-center gap-1 text-[11px] font-medium text-purple-400 hover:text-purple-300 transition-colors cursor-pointer"
                     >
                       <span>Manage</span>

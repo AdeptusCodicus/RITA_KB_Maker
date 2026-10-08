@@ -55,6 +55,22 @@ export default function AccessPendingGatekeeper({
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
             <span className="font-mono text-[11px]">{session.email}</span>
           </div>
+          {session.isSimulating && (
+            <button
+              onClick={() => {
+                fetch('/api/auth/me', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ action: 'clear_simulation' }),
+                }).then(() => onRefresh());
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold transition-colors cursor-pointer shadow-md shadow-purple-600/30"
+              title="Exit simulation and return to your account"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Exit Simulation</span>
+            </button>
+          )}
           {onSwitchDevEmail && (
             <button
               onClick={() => onSwitchDevEmail(null)}
@@ -75,27 +91,53 @@ export default function AccessPendingGatekeeper({
         </div>
 
         <h2 className="text-xl font-semibold text-white tracking-tight mb-2">
-          Team Assignment Pending
+          {session.isSimulating ? 'Simulating Unassigned Role' : 'Team Assignment Pending'}
         </h2>
 
         <p className="text-xs text-slate-400 leading-relaxed mb-6">
-          Your Google account has been authenticated, but you have not been assigned to a team yet.
-          Please contact an organization administrator to be granted access to your team workspace.
+          {session.isSimulating
+            ? 'You are currently simulating what an unassigned organization employee experiences before being added to a team.'
+            : 'Your Google account has been authenticated, but you have not been assigned to a team yet. Please contact an organization administrator to be granted access to your team workspace.'}
         </p>
 
         {/* Verification Status Pill */}
         <div className="bg-[#131b2e] border border-[#22314d] rounded-xl p-3 mb-6 text-left flex items-start gap-3">
           <CheckCircle2 className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
           <div className="text-[11px]">
-            <p className="text-slate-200 font-medium">Identity Verified</p>
+            <p className="text-slate-200 font-medium">
+              {session.isSimulating ? 'Active Simulation' : 'Identity Verified'}
+            </p>
             <p className="text-slate-400 mt-0.5">
-              Signed in as <span className="font-mono text-slate-300">{session.email}</span>
+              {session.isSimulating ? (
+                <>
+                  Simulated Identity: <span className="font-mono text-slate-300">{session.email}</span>
+                </>
+              ) : (
+                <>
+                  Signed in as <span className="font-mono text-slate-300">{session.email}</span>
+                </>
+              )}
             </p>
           </div>
         </div>
 
         {/* Actions */}
         <div className="space-y-2.5">
+          {session.isSimulating && (
+            <button
+              onClick={() => {
+                fetch('/api/auth/me', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ action: 'clear_simulation' }),
+                }).then(() => onRefresh());
+              }}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold transition-all shadow-md shadow-purple-600/30 cursor-pointer"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Exit Simulation (Return to Superadmin)</span>
+            </button>
+          )}
           <button
             onClick={handleRefresh}
             disabled={isRefreshing}

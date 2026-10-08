@@ -5,6 +5,7 @@ import { Loader2, ShieldCheck, Sparkles, LogIn } from 'lucide-react';
 import type { AuthSession, UserRole } from '@/types/auth';
 import AccessPendingGatekeeper from './AccessPendingGatekeeper';
 import VerifiedEmailInput from './VerifiedEmailInput';
+import SimulationBanner from './SimulationBanner';
 
 interface AuthContextType {
   session: AuthSession | null;
@@ -205,7 +206,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         teamName: session.teamName,
       }}
     >
-      {children}
+      <div className="flex flex-col h-screen w-screen overflow-hidden">
+        <SimulationBanner />
+        <div className="flex-1 flex overflow-hidden min-h-0">
+          {children}
+        </div>
+      </div>
     </AuthContext.Provider>
   );
 }

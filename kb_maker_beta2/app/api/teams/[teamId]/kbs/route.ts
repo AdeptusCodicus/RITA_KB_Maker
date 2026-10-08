@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth/server';
 import {
   getTeamKBs,
+  getAllKBs,
   saveTeamKBRecord,
   deleteTeamKBRecord,
   getKBRecord,
@@ -25,7 +26,10 @@ export async function GET(
       return NextResponse.json({ error: 'Access denied to this team' }, { status: 403 });
     }
 
-    const kbs = await getTeamKBs(params.teamId);
+    const kbs =
+      session.isSuperadmin && (params.teamId === 'global' || params.teamId === 'all')
+        ? await getAllKBs()
+        : await getTeamKBs(params.teamId);
     return NextResponse.json({ kbs });
   } catch (error) {
     return NextResponse.json(
