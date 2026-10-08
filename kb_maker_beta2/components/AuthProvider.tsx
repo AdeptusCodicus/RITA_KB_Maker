@@ -4,7 +4,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { Loader2, ShieldCheck, Sparkles, LogIn } from 'lucide-react';
 import type { AuthSession, UserRole } from '@/types/auth';
 import AccessPendingGatekeeper from './AccessPendingGatekeeper';
-import UserCombobox from './UserCombobox';
+import VerifiedEmailInput from './VerifiedEmailInput';
 
 interface AuthContextType {
   session: AuthSession | null;
@@ -36,6 +36,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<AuthSession | null>(null);
   const [loading, setLoading] = useState(true);
   const [loginInput, setLoginInput] = useState('');
+  const [isLoginInputValid, setIsLoginInputValid] = useState(false);
 
   const fetchSession = useCallback(async () => {
     try {
@@ -148,21 +149,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             </span>
             <div className="flex gap-2 items-start">
               <div className="flex-1">
-                <UserCombobox
+                <VerifiedEmailInput
                   value={loginInput}
-                  onChange={(email) => setLoginInput(email)}
-                  placeholder="Select colleague or type email..."
+                  onChange={(email, isValid) => {
+                    setLoginInput(email);
+                    setIsLoginInputValid(isValid);
+                  }}
+                  placeholder="colleague@foodgroup.ph"
                 />
               </div>
               <button
                 type="button"
                 onClick={() => {
-                  if (loginInput.trim()) {
+                  if (loginInput.trim() && isLoginInputValid) {
                     switchDevEmail(loginInput.trim());
                   }
                 }}
-                disabled={!loginInput.trim()}
-                className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-xs font-semibold rounded-xl transition-colors cursor-pointer disabled:opacity-50 flex-shrink-0 shadow-md shadow-blue-600/20"
+                disabled={!loginInput.trim() || !isLoginInputValid}
+                className="px-3.5 py-2.5 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-xs font-semibold rounded-xl transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0 shadow-md shadow-blue-600/20"
               >
                 Sign In
               </button>

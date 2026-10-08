@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import Sidebar from '@/components/Sidebar';
 import { useAuth } from '@/components/AuthProvider';
-import UserCombobox from '@/components/UserCombobox';
+import VerifiedEmailInput from '@/components/VerifiedEmailInput';
 import type { TeamDocument } from '@/types/auth';
 
 interface EnrichedTeam extends TeamDocument {
@@ -41,6 +41,7 @@ export default function SuperadminOrgPage() {
   const [teamName, setTeamName] = useState('');
   const [teamDescription, setTeamDescription] = useState('');
   const [adminEmail, setAdminEmail] = useState('');
+  const [isAdminEmailValid, setIsAdminEmailValid] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
@@ -359,12 +360,15 @@ export default function SuperadminOrgPage() {
                   />
                 </div>
 
-                <UserCombobox
-                  label="Assign Initial Team Admin"
-                  placeholder="Search colleague by name or Google email..."
+                <VerifiedEmailInput
+                  label="Assign Initial Team Admin (Optional)"
+                  placeholder="colleague@foodgroup.ph"
                   value={adminEmail}
-                  onChange={(email) => setAdminEmail(email)}
-                  helperText="Search colleagues across your organization, or input an email to invite."
+                  onChange={(email, isValid) => {
+                    setAdminEmail(email);
+                    setIsAdminEmailValid(!email.trim() || isValid);
+                  }}
+                  helperText="Leave empty to manage later, or enter an authorized organization email."
                 />
 
                 <div className="pt-2 flex items-center justify-end gap-2">
@@ -377,8 +381,8 @@ export default function SuperadminOrgPage() {
                   </button>
                   <button
                     type="submit"
-                    disabled={isSubmitting}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-xs font-semibold disabled:opacity-50 cursor-pointer"
+                    disabled={isSubmitting || !teamName.trim() || !isAdminEmailValid}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed shadow-md shadow-blue-600/20 cursor-pointer"
                   >
                     {isSubmitting ? (
                       <RefreshCw className="w-3.5 h-3.5 animate-spin" />

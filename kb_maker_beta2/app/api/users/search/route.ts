@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth/server';
-import { getAllUsers, getAllTeams, isSuperadminEmail } from '@/lib/firestore';
+import { getAllUsers, getAllTeams, isSuperadminEmail, isEmailInOrganization } from '@/lib/firestore';
 import type { SearchUserItem } from '@/types/auth';
 
 export const dynamic = 'force-dynamic';
@@ -13,6 +13,7 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url);
     const q = (searchParams.get('q') || '').trim().toLowerCase();
+    const lookupEmail = (searchParams.get('email') || '').trim().toLowerCase();
 
     const [users, teams] = await Promise.all([
       getAllUsers(),
@@ -24,9 +25,30 @@ export async function GET(request: Request) {
       teamMap.set(t.id, t.name);
     }
 
-    let filtered = users;
+    // Direct single email lookup for real-time validation
+    if (lookupEmail) {
+      const isOrgEmail = isEmailInOrganization(lookupEmail);
+      const user = users.find((u) => u.email.toLowerCase() === lookupEmail);
+      return NextResponse.json({
+        isOrgEmail,
+        user: user
+          ? {
+              email: user.email,
+              name: user.name || user.email.split('@')[0],
+              avatarUrl: user.avatarUrl,
+              teamId: user.teamId,
+              teamName: user.teamId ? teamMap.get(user.teamId) || user.teamId : null,
+              teamRole: user.teamRole,
+              status: user.status,
+              isSuperadmin: isSuperadminEmail(user.email),
+            }
+          : null,
+      });
+    }
+
+    let filtered = users.filter((u) => isEmailInOrganization(u.email));
     if (q) {
-      filtered = users.filter((u) => {
+      filtered = filtered.filter((u) => {
         const emailMatch = u.email.toLowerCase().includes(q);
         const nameMatch = u.name ? u.name.toLowerCase().includes(q) : false;
         return emailMatch || nameMatch;

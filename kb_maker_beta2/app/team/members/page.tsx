@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import Sidebar from '@/components/Sidebar';
 import { useAuth } from '@/components/AuthProvider';
-import UserCombobox from '@/components/UserCombobox';
+import VerifiedEmailInput from '@/components/VerifiedEmailInput';
 import type { TeamMemberItem, TeamRole } from '@/types/auth';
 
 export default function TeamMembersPage() {
@@ -33,6 +33,7 @@ export default function TeamMembersPage() {
   const [inputEmail, setInputEmail] = useState('');
   const [selectedRole, setSelectedRole] = useState<TeamRole>('editor');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isEmailValid, setIsEmailValid] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
 
   const canManageMembers = isSuperadmin || role === 'admin';
@@ -374,15 +375,18 @@ export default function TeamMembersPage() {
                   </div>
                 )}
 
-                <UserCombobox
-                  label="Search & Select Colleague"
-                  placeholder="Type name, letters, or Google email..."
+                <VerifiedEmailInput
+                  label="Colleague Email Address"
+                  placeholder="colleague@foodgroup.ph"
                   value={inputEmail}
-                  onChange={(email) => setInputEmail(email)}
+                  onChange={(email, isValid) => {
+                    setInputEmail(email);
+                    setIsEmailValid(isValid);
+                  }}
                   currentTeamId={session?.teamId || undefined}
                   required
                   autoFocus
-                  helperText="Search colleagues across your organization directory, or enter a new email."
+                  helperText="Enter any authorized Google account from your organization."
                 />
 
                 <div>
@@ -454,8 +458,8 @@ export default function TeamMembersPage() {
                   </button>
                   <button
                     type="submit"
-                    disabled={isSubmitting}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-xs font-semibold disabled:opacity-50 cursor-pointer"
+                    disabled={isSubmitting || !inputEmail.trim() || !isEmailValid}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed shadow-md shadow-blue-600/20 cursor-pointer"
                   >
                     {isSubmitting ? (
                       <RefreshCw className="w-3.5 h-3.5 animate-spin" />

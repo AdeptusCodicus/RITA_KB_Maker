@@ -15,7 +15,7 @@ import {
   Layers,
 } from 'lucide-react';
 import { useAuth } from './AuthProvider';
-import UserCombobox from './UserCombobox';
+import VerifiedEmailInput from './VerifiedEmailInput';
 import type { SearchUserItem } from '@/types/auth';
 
 interface AccountModalProps {
@@ -26,6 +26,7 @@ interface AccountModalProps {
 export default function AccountModal({ isOpen, onClose }: AccountModalProps) {
   const { session, switchDevEmail, isSuperadmin, role, teamName } = useAuth();
   const [selectedEmail, setSelectedEmail] = useState('');
+  const [isEmailValid, setIsEmailValid] = useState(false);
   const [isSwitching, setIsSwitching] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
 
@@ -163,16 +164,20 @@ export default function AccountModal({ isOpen, onClose }: AccountModalProps) {
             </p>
 
             <div className="space-y-3">
-              <UserCombobox
+              <VerifiedEmailInput
                 value={selectedEmail}
-                onChange={(email) => setSelectedEmail(email)}
-                placeholder="Search org member by name or email..."
+                onChange={(email, isValid) => {
+                  setSelectedEmail(email);
+                  setIsEmailValid(isValid);
+                }}
+                placeholder="colleague@foodgroup.ph"
+                helperText="Enter any authorized Google account from your organization."
               />
 
               <button
                 type="button"
                 onClick={handleSwitchAccount}
-                disabled={!selectedEmail.trim() || isSwitching}
+                disabled={!selectedEmail.trim() || !isEmailValid || isSwitching}
                 className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-xs font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-md shadow-blue-600/20 cursor-pointer"
               >
                 <ArrowRightLeft className="w-3.5 h-3.5" />

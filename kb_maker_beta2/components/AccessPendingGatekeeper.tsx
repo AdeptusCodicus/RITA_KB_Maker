@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { ShieldAlert, RefreshCw, Mail, CheckCircle2, LogOut, Sparkles } from 'lucide-react';
 import type { AuthSession } from '@/types/auth';
-import UserCombobox from './UserCombobox';
+import VerifiedEmailInput from './VerifiedEmailInput';
 
 interface AccessPendingGatekeeperProps {
   session: AuthSession;
@@ -18,6 +18,7 @@ export default function AccessPendingGatekeeper({
 }: AccessPendingGatekeeperProps) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [devInput, setDevInput] = useState('');
+  const [isDevInputValid, setIsDevInputValid] = useState(false);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -113,22 +114,25 @@ export default function AccessPendingGatekeeper({
             </span>
             <div className="flex gap-2 items-start">
               <div className="flex-1">
-                <UserCombobox
+                <VerifiedEmailInput
                   value={devInput}
-                  onChange={(email) => setDevInput(email)}
-                  placeholder="Select colleague or type email..."
+                  onChange={(email, isValid) => {
+                    setDevInput(email);
+                    setIsDevInputValid(isValid);
+                  }}
+                  placeholder="colleague@foodgroup.ph"
                 />
               </div>
               <button
                 type="button"
                 onClick={async () => {
-                  if (devInput.trim()) {
+                  if (devInput.trim() && isDevInputValid) {
                     await onSwitchDevEmail(devInput.trim());
                     setDevInput('');
                   }
                 }}
-                disabled={!devInput.trim()}
-                className="px-3.5 py-2 bg-[#19243b] hover:bg-[#22314d] border border-[#2a3c61] text-xs font-medium text-slate-200 disabled:opacity-50 rounded-xl transition-colors cursor-pointer flex-shrink-0"
+                disabled={!devInput.trim() || !isDevInputValid}
+                className="px-3.5 py-2.5 bg-[#19243b] hover:bg-[#22314d] border border-[#2a3c61] text-xs font-medium text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl transition-colors cursor-pointer flex-shrink-0"
               >
                 Switch
               </button>
