@@ -33,7 +33,7 @@ export async function GET(request: Request) {
         return NextResponse.json({
           isOrgEmail: false,
           existsOnGoogle: false,
-          googleVerified: true,
+          googleVerified: false,
           user: null,
           error: 'Must use your organization domain (@foodgroup.ph)',
         });
@@ -54,7 +54,7 @@ export async function GET(request: Request) {
       return NextResponse.json({
         isOrgEmail: true,
         existsOnGoogle: true,
-        googleVerified: true,
+        googleVerified: googleCheck.verified,
         isExistingMember: !!user,
         user: user
           ? {

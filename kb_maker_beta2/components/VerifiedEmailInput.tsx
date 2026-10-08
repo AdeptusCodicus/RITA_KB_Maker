@@ -50,6 +50,7 @@ export default function VerifiedEmailInput({
   >('empty');
 
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const activeRequestIdRef = useRef<number>(0);
 
   // Sync external value
   useEffect(() => {
@@ -58,31 +59,38 @@ export default function VerifiedEmailInput({
 
   const validateEmail = useCallback(
     async (email: string) => {
+      const currentRequestId = ++activeRequestIdRef.current;
       const trimmed = email.trim().toLowerCase();
       setErrorMessage(null);
 
       if (!trimmed) {
-        setValidationState('empty');
-        setMatchedUser(null);
-        onChange('', false, null);
+        if (currentRequestId === activeRequestIdRef.current) {
+          setValidationState('empty');
+          setMatchedUser(null);
+          onChange('', false, null);
+        }
         return;
       }
 
       // Check email format
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(trimmed)) {
-        setValidationState('incomplete');
-        setMatchedUser(null);
-        onChange(trimmed, false, null);
+        if (currentRequestId === activeRequestIdRef.current) {
+          setValidationState('incomplete');
+          setMatchedUser(null);
+          onChange(trimmed, false, null);
+        }
         return;
       }
 
       // Check organization domain
       const domain = trimmed.split('@').pop() || '';
       if (domain !== ORG_DOMAIN) {
-        setValidationState('invalid_domain');
-        setMatchedUser(null);
-        onChange(trimmed, false, null);
+        if (currentRequestId === activeRequestIdRef.current) {
+          setValidationState('invalid_domain');
+          setMatchedUser(null);
+          onChange(trimmed, false, null);
+        }
         return;
       }
 
@@ -90,6 +98,8 @@ export default function VerifiedEmailInput({
       setIsValidating(true);
       try {
         const res = await fetch(`/api/users/search?email=${encodeURIComponent(trimmed)}&_t=${Date.now()}`);
+        if (currentRequestId !== activeRequestIdRef.current) return;
+
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
           setMatchedUser(null);
@@ -100,6 +110,7 @@ export default function VerifiedEmailInput({
         }
 
         const data = await res.json();
+        if (currentRequestId !== activeRequestIdRef.current) return;
 
         // 1. Google Workspace confirmed non-existent
         if (!data.existsOnGoogle) {
@@ -131,13 +142,16 @@ export default function VerifiedEmailInput({
           onChange(trimmed, true, user);
         }
       } catch (err: any) {
+        if (currentRequestId !== activeRequestIdRef.current) return;
         console.error('Email verification error:', err);
         setMatchedUser(null);
         setErrorMessage('Network error while contacting Google Workspace verification');
         setValidationState('google_not_found');
         onChange(trimmed, false, null);
       } finally {
-        setIsValidating(false);
+        if (currentRequestId === activeRequestIdRef.current) {
+          setIsValidating(false);
+        }
       }
     },
     [currentTeamId, onChange]
@@ -146,6 +160,38 @@ export default function VerifiedEmailInput({
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setEmailInput(val);
+
+    const trimmed = val.trim().toLowerCase();
+    // Invalidate previous in-flight requests immediately
+    activeRequestIdRef.current++;
+
+    if (!trimmed) {
+      setValidationState('empty');
+      setMatchedUser(null);
+      setErrorMessage(null);
+      onChange('', false, null);
+    } else {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(trimmed)) {
+        setValidationState('incomplete');
+        setMatchedUser(null);
+        setErrorMessage(null);
+        onChange(trimmed, false, null);
+      } else {
+        const domain = trimmed.split('@').pop() || '';
+        if (domain !== ORG_DOMAIN) {
+          setValidationState('invalid_domain');
+          setMatchedUser(null);
+          setErrorMessage(null);
+          onChange(trimmed, false, null);
+        } else {
+          // Reset to incomplete while validating debounce fires
+          setValidationState('incomplete');
+          setMatchedUser(null);
+          setErrorMessage(null);
+        }
+      }
+    }
 
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     debounceTimerRef.current = setTimeout(() => {

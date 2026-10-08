@@ -25,11 +25,49 @@ let cachedKeyJson: { client_email: string; private_key: string; client_id?: stri
 function loadServiceAccountKey(): { client_email: string; private_key: string; client_id?: string } | null {
   if (cachedKeyJson) return cachedKeyJson;
 
+  // 1. Direct environment variable containing JSON or Base64 JSON
+  const inlineCandidates = [
+    process.env.GOOGLE_WORKSPACE_CREDENTIALS_JSON,
+    process.env.GMAIL_SERVICE_ACCOUNT_JSON,
+  ];
+
+  for (const raw of inlineCandidates) {
+    if (raw && raw.trim()) {
+      try {
+        const text = raw.trim();
+        const parsed = JSON.parse(text.startsWith('{') ? text : Buffer.from(text, 'base64').toString('utf-8'));
+        if (parsed.client_email && parsed.private_key) {
+          cachedKeyJson = parsed;
+          return cachedKeyJson;
+        }
+      } catch (e) {
+        console.warn('[GoogleWorkspace] Failed to parse inline service account JSON:', e);
+      }
+    }
+  }
+
+  if (process.env.GOOGLE_WORKSPACE_CREDENTIALS_BASE64) {
+    try {
+      const decoded = Buffer.from(process.env.GOOGLE_WORKSPACE_CREDENTIALS_BASE64.trim(), 'base64').toString('utf-8');
+      const parsed = JSON.parse(decoded);
+      if (parsed.client_email && parsed.private_key) {
+        cachedKeyJson = parsed;
+        return cachedKeyJson;
+      }
+    } catch (e) {
+      console.warn('[GoogleWorkspace] Failed to parse base64 service account key:', e);
+    }
+  }
+
+  // 2. File path candidates
   const candidatePaths = [
     process.env.GOOGLE_WORKSPACE_CREDENTIALS_PATH,
     process.env.GOOGLE_APPLICATION_CREDENTIALS,
-    '/Users/matt/Documents/gchat-integration/python_backend/rgpt-gchat-test-2a9e713c2642.json',
+    path.resolve(process.cwd(), 'service-account.json'),
+    path.resolve(process.cwd(), '../service-account.json'),
     path.resolve(process.cwd(), '../gchat-integration/python_backend/rgpt-gchat-test-2a9e713c2642.json'),
+    path.resolve(process.cwd(), '../../gchat-integration/python_backend/rgpt-gchat-test-2a9e713c2642.json'),
+    '/Users/matt/Documents/gchat-integration/python_backend/rgpt-gchat-test-2a9e713c2642.json',
   ].filter(Boolean) as string[];
 
   for (const candidate of candidatePaths) {
@@ -100,13 +138,12 @@ export async function verifyGoogleWorkspaceUser(
   // 3. Load DWD Service Account key
   const key = loadServiceAccountKey();
   if (!key) {
-    console.warn('[GoogleWorkspace] No service account key found for DWD verification');
-    // Fall back gracefully if credentials are not mounted
+    console.error('[GoogleWorkspace] No service account key found for DWD verification');
     return {
-      exists: true,
+      exists: false,
       verified: false,
       email: normalized,
-      name: formatNameFromEmail(normalized),
+      error: 'Google Workspace verification service credentials not configured',
     };
   }
 
