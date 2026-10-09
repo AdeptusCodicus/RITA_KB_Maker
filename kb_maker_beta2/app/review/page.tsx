@@ -786,7 +786,7 @@ export default function ReviewPage() {
 
   if (!extractedText && !kbMarkdown) {
     return (
-      <div className="flex h-screen w-full bg-[#fafbfc]">
+      <div className="flex h-full w-full bg-[#fafbfc]">
         <Sidebar />
         <div className="flex-1 flex items-center justify-center">
           <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
@@ -796,7 +796,7 @@ export default function ReviewPage() {
   }
 
   return (
-    <div className="flex h-screen w-full bg-[#f8fafc] text-slate-900 overflow-hidden">
+    <div className="flex h-full w-full bg-[#f8fafc] text-slate-900 overflow-hidden">
       {/* Sidebar */}
       <Sidebar />
 

@@ -19,7 +19,7 @@ export default function LiveKBError({
   }, [error]);
 
   return (
-    <div className="flex h-screen bg-[#f8fafc] text-slate-800 overflow-hidden font-sans">
+    <div className="flex h-full w-full bg-[#f8fafc] text-slate-800 overflow-hidden font-sans">
       {/* Primary Sidebar */}
       <Sidebar />
 

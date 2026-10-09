@@ -250,7 +250,7 @@ export default function Sidebar() {
   const isOrgActive = pathname === '/admin/org';
 
   return (
-    <aside className="h-screen w-64 bg-[#090d16] text-slate-400 flex flex-col border-r border-[#1a2234] flex-shrink-0 select-none">
+    <aside className="h-full w-64 bg-[#090d16] text-slate-400 flex flex-col border-r border-[#1a2234] flex-shrink-0 select-none">
       {/* Brand Header */}
       <div className="p-4 border-b border-[#1a2234]/80 flex items-center justify-between">
         <div

@@ -302,7 +302,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     >
       <div className="flex flex-col h-screen w-full overflow-hidden bg-[#070a11]">
         <SimulationBanner />
-        <div className="flex-1 w-full h-full overflow-hidden min-h-0 relative">
+        <div className="flex-1 w-full overflow-hidden min-h-0 relative">
           {children}
         </div>
       </div>

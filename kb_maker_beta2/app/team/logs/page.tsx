@@ -138,7 +138,7 @@ export default function TeamLogsPage() {
   // Guard view if Editor or Viewer accesses directly
   if (!isAllowed) {
     return (
-      <div className="flex h-screen w-full bg-[#070a11] text-slate-100 antialiased overflow-hidden">
+      <div className="flex h-full w-full bg-[#070a11] text-slate-100 antialiased overflow-hidden">
         <Sidebar />
         <main className="flex-1 flex flex-col items-center justify-center p-6 bg-[#0a0e1a]">
           <div className="max-w-md w-full bg-[#0d1424] border border-[#1a2234] rounded-2xl p-8 text-center shadow-xl">
@@ -167,7 +167,7 @@ export default function TeamLogsPage() {
   });
 
   return (
-    <div className="flex h-screen w-full bg-[#070a11] text-slate-100 antialiased overflow-hidden">
+    <div className="flex h-full w-full bg-[#070a11] text-slate-100 antialiased overflow-hidden">
       <Sidebar />
 
       <main className="flex-1 flex flex-col h-full overflow-hidden bg-[#0a0e1a]">
