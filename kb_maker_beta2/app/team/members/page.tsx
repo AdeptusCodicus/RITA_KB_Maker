@@ -441,24 +441,44 @@ function TeamMembersContent() {
 
                         <td className="px-4 py-3.5">
                           {isSuperadmin ? (
-                            <select
-                              value={member.teamRole}
-                              onChange={(e) => handlePromoteOrDemote(member, e.target.value as TeamRole)}
-                              className="bg-[#090d16] border border-[#1a2234] rounded-lg px-2.5 py-1 text-xs text-slate-200 outline-none focus:border-purple-500/60 font-medium cursor-pointer"
-                            >
-                              <option value="admin">👑 Admin (Team Lead)</option>
-                              <option value="editor">✏️ Editor (Can manage KBs)</option>
-                              <option value="viewer">👁️ Viewer (Read-only)</option>
-                            </select>
+                            <div className="relative inline-flex items-center">
+                              <div className="pointer-events-none absolute left-2.5 flex items-center text-slate-400">
+                                {member.teamRole === 'admin' ? (
+                                  <ShieldCheck className="w-3.5 h-3.5 text-purple-400" />
+                                ) : member.teamRole === 'editor' ? (
+                                  <Edit3 className="w-3.5 h-3.5 text-blue-400" />
+                                ) : (
+                                  <Eye className="w-3.5 h-3.5 text-slate-400" />
+                                )}
+                              </div>
+                              <select
+                                value={member.teamRole}
+                                onChange={(e) => handlePromoteOrDemote(member, e.target.value as TeamRole)}
+                                className="bg-[#090d16] border border-[#1a2234] rounded-lg pl-8 pr-3 py-1 text-xs text-slate-200 outline-none focus:border-purple-500/60 font-medium cursor-pointer"
+                              >
+                                <option value="admin">Admin (Team Lead)</option>
+                                <option value="editor">Editor (Can manage KBs)</option>
+                                <option value="viewer">Viewer (Read-only)</option>
+                              </select>
+                            </div>
                           ) : canManageMembers && !isAdmin ? (
-                            <select
-                              value={member.teamRole}
-                              onChange={(e) => handlePromoteOrDemote(member, e.target.value as TeamRole)}
-                              className="bg-[#090d16] border border-[#1a2234] rounded-lg px-2.5 py-1 text-xs text-slate-200 outline-none focus:border-blue-500/60 font-medium cursor-pointer"
-                            >
-                              <option value="editor">✏️ Editor (Can manage KBs)</option>
-                              <option value="viewer">👁️ Viewer (Read-only)</option>
-                            </select>
+                            <div className="relative inline-flex items-center">
+                              <div className="pointer-events-none absolute left-2.5 flex items-center text-slate-400">
+                                {member.teamRole === 'editor' ? (
+                                  <Edit3 className="w-3.5 h-3.5 text-blue-400" />
+                                ) : (
+                                  <Eye className="w-3.5 h-3.5 text-slate-400" />
+                                )}
+                              </div>
+                              <select
+                                value={member.teamRole}
+                                onChange={(e) => handlePromoteOrDemote(member, e.target.value as TeamRole)}
+                                className="bg-[#090d16] border border-[#1a2234] rounded-lg pl-8 pr-3 py-1 text-xs text-slate-200 outline-none focus:border-blue-500/60 font-medium cursor-pointer"
+                              >
+                                <option value="editor">Editor (Can manage KBs)</option>
+                                <option value="viewer">Viewer (Read-only)</option>
+                              </select>
+                            </div>
                           ) : (
                             <span
                               className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium border ${
