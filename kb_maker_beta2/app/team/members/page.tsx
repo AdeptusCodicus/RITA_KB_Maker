@@ -398,7 +398,7 @@ function TeamMembersContent() {
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-base font-semibold text-white tracking-tight">Team Teammates & Roles</h1>
+                <h1 className="text-base font-semibold text-white tracking-tight">Team Members & Roles</h1>
                 {isSuperadmin && teams.length > 0 ? (
                   <select
                     value={activeTeamId}
