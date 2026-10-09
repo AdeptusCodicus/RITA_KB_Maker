@@ -112,6 +112,35 @@ export async function POST(
     const existingUser = await getUserDoc(normalizedEmail);
     if (existingUser) {
       if (existingUser.teamId === params.teamId) {
+        if (session.isSuperadmin && assignedRole === 'admin') {
+          // Promote existing member to admin and synchronize team.adminEmails
+          await upsertUserDoc(normalizedEmail, {
+            teamRole: 'admin',
+          });
+          const { syncTeamAdminRole } = await import('@/lib/firestore');
+          await syncTeamAdminRole(params.teamId, normalizedEmail, true);
+          await addAuditLog(
+            params.teamId,
+            'ADMIN_ASSIGNED',
+            {
+              email: session.email || '',
+              name: session.name || undefined,
+              role: session.role,
+            },
+            'member',
+            normalizedEmail,
+            { reason: 'Superadmin assigned administrator to unmanaged team' }
+          );
+          return NextResponse.json({
+            success: true,
+            promoted: true,
+            member: {
+              email: normalizedEmail,
+              teamRole: 'admin',
+              status: 'active',
+            },
+          });
+        }
         return NextResponse.json(
           { error: `User ${normalizedEmail} is already a member of this team` },
           { status: 400 }
@@ -143,13 +172,10 @@ export async function POST(
       name: existingUser?.name || googleCheck.name || formatNameFromEmail(normalizedEmail),
     });
 
-    // If assigning admin, also add to team's adminEmails array if not present
-    if (assignedRole === 'admin' && !team.adminEmails.includes(normalizedEmail)) {
-      const db = (await import('@/lib/firestore')).getFirestoreDb();
-      await db.collection('teams').doc(params.teamId).update({
-        adminEmails: [...team.adminEmails, normalizedEmail],
-        updatedAt: new Date().toISOString(),
-      });
+    // If assigning admin, also synchronize team's adminEmails array safely
+    if (assignedRole === 'admin') {
+      const { syncTeamAdminRole } = await import('@/lib/firestore');
+      await syncTeamAdminRole(params.teamId, normalizedEmail, true);
     }
 
     // 6. Record audit log

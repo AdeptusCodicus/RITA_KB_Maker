@@ -46,7 +46,7 @@ function TeamMembersContent() {
   const [isEmailValid, setIsEmailValid] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
 
-  // Admin Succession Modal State
+  // Admin Succession Modal State (when removing sole admin)
   const [isSuccessionModalOpen, setIsSuccessionModalOpen] = useState(false);
   const [adminToRemove, setAdminToRemove] = useState<TeamMemberItem | null>(null);
   const [successionPlan, setSuccessionPlan] = useState<'promote' | 'new' | 'unassigned'>('promote');
@@ -55,6 +55,15 @@ function TeamMembersContent() {
   const [isNewAdminEmailValid, setIsNewAdminEmailValid] = useState<boolean>(false);
   const [isRemovingAdmin, setIsRemovingAdmin] = useState<boolean>(false);
   const [successionError, setSuccessionError] = useState<string | null>(null);
+
+  // Assign Admin Modal State (when team has NO admin)
+  const [isAssignAdminModalOpen, setIsAssignAdminModalOpen] = useState(false);
+  const [assignMode, setAssignMode] = useState<'promote' | 'new'>('promote');
+  const [promoteMemberEmail, setPromoteMemberEmail] = useState<string>('');
+  const [assignAdminEmail, setAssignAdminEmail] = useState<string>('');
+  const [isAssignAdminEmailValid, setIsAssignAdminEmailValid] = useState<boolean>(false);
+  const [isAssigningAdmin, setIsAssigningAdmin] = useState<boolean>(false);
+  const [assignAdminError, setAssignAdminError] = useState<string | null>(null);
 
   const canManageMembers = isSuperadmin || role === 'admin';
 
@@ -105,6 +114,9 @@ function TeamMembersContent() {
   useEffect(() => {
     fetchMembers();
   }, [fetchMembers]);
+
+  const adminCount = members.filter((m) => m.teamRole === 'admin').length;
+  const hasNoAdmin = !loading && Boolean(activeTeamId) && adminCount === 0;
 
   const handleAddMember = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -174,10 +186,9 @@ function TeamMembersContent() {
 
   const handlePromoteOrDemote = async (member: TeamMemberItem, targetRole: TeamRole) => {
     if (member.teamRole === 'admin' && targetRole !== 'admin') {
-      const adminCount = members.filter((m) => m.teamRole === 'admin').length;
       if (adminCount <= 1) {
         const proceed = confirm(
-          `Warning: ${member.name || member.email} is the only administrator of this team. Demoting them will leave the team without an active administrator until a Superadmin assigns one. Do you want to proceed?`
+          `Warning: ${member.name || member.email} is currently the only administrator of this team. Demoting them will leave the team without an active administrator until a Superadmin assigns one. Do you want to proceed?`
         );
         if (!proceed) return;
       }
@@ -187,7 +198,6 @@ function TeamMembersContent() {
 
   const handleRemoveMember = async (member: TeamMemberItem) => {
     const isAdmin = member.teamRole === 'admin';
-    const adminCount = members.filter((m) => m.teamRole === 'admin').length;
 
     // If removing the sole/last admin of the team, trigger succession modal
     if (isAdmin && adminCount <= 1) {
@@ -284,6 +294,83 @@ function TeamMembersContent() {
     }
   };
 
+  const handleAssignAdminSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeTeamId) return;
+
+    setIsAssigningAdmin(true);
+    setAssignAdminError(null);
+
+    try {
+      if (assignMode === 'promote') {
+        if (!promoteMemberEmail) {
+          setAssignAdminError('Please select an existing team member to promote.');
+          setIsAssigningAdmin(false);
+          return;
+        }
+
+        const res = await fetch(
+          `/api/teams/${activeTeamId}/members/${encodeURIComponent(promoteMemberEmail)}`,
+          {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ role: 'admin' }),
+          }
+        );
+
+        const data = await res.json();
+        if (!res.ok) {
+          setAssignAdminError(data.error || 'Failed to promote member to administrator');
+          return;
+        }
+      } else {
+        if (!assignAdminEmail.trim() || !isAssignAdminEmailValid) {
+          setAssignAdminError('Please enter a valid organization email address.');
+          setIsAssigningAdmin(false);
+          return;
+        }
+
+        const res = await fetch(`/api/teams/${activeTeamId}/members`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: assignAdminEmail.trim(),
+            role: 'admin',
+          }),
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          setAssignAdminError(data.error || 'Failed to assign administrator');
+          return;
+        }
+      }
+
+      setIsAssignAdminModalOpen(false);
+      setAssignAdminEmail('');
+      setPromoteMemberEmail('');
+      await fetchMembers();
+    } catch (err: any) {
+      setAssignAdminError(err?.message || 'Network error assigning administrator');
+    } finally {
+      setIsAssigningAdmin(false);
+    }
+  };
+
+  const openAssignAdminModal = () => {
+    setAssignAdminError(null);
+    setAssignAdminEmail('');
+    setIsAssignAdminEmailValid(false);
+    if (members.length > 0) {
+      setAssignMode('promote');
+      setPromoteMemberEmail(members[0].email);
+    } else {
+      setAssignMode('new');
+      setPromoteMemberEmail('');
+    }
+    setIsAssignAdminModalOpen(true);
+  };
+
   const filteredMembers = members.filter((m) => {
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
@@ -348,10 +435,26 @@ function TeamMembersContent() {
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
 
+            {/* Quick Assign Administrator Button for Superadmin if Team Has No Admin */}
+            {isSuperadmin && hasNoAdmin && (
+              <button
+                onClick={openAssignAdminModal}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 active:bg-purple-700 text-white text-xs font-semibold transition-all shadow-md shadow-purple-600/20 cursor-pointer"
+              >
+                <ShieldCheck className="w-4 h-4" />
+                <span>Assign Administrator</span>
+              </button>
+            )}
+
             {canManageMembers && (
               <button
                 onClick={() => {
                   setAddError(null);
+                  if (hasNoAdmin && isSuperadmin) {
+                    setSelectedRole('admin');
+                  } else {
+                    setSelectedRole('editor');
+                  }
                   setIsAddModalOpen(true);
                 }}
                 className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-xs font-semibold transition-all shadow-md shadow-blue-600/20 cursor-pointer"
@@ -383,6 +486,33 @@ function TeamMembersContent() {
             </span>
           </div>
         </div>
+
+        {/* Leadership Needed Alert Banner (when team has NO admin) */}
+        {isSuperadmin && hasNoAdmin && (
+          <div className="mx-6 mt-4 p-4 rounded-xl bg-amber-950/30 border border-amber-500/40 flex items-center justify-between gap-4 flex-shrink-0 shadow-lg animate-in fade-in duration-200">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 flex-shrink-0">
+                <ShieldAlert className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-xs font-semibold text-amber-300">
+                  Leadership Needed: Team Has No Administrator
+                </h4>
+                <p className="text-[11px] text-slate-300 mt-0.5">
+                  The previous administrator was removed or demoted. You can promote an existing team member or assign a new colleague from your organization.
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={openAssignAdminModal}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 active:bg-amber-700 text-white text-xs font-semibold transition-all shadow-md shadow-amber-600/20 cursor-pointer flex-shrink-0"
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span>Assign Administrator</span>
+            </button>
+          </div>
+        )}
 
         {/* Member Table */}
         <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
@@ -649,7 +779,35 @@ function TeamMembersContent() {
                   <label className="block text-xs font-medium text-slate-300 mb-1.5">
                     Role & Permissions
                   </label>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className={`grid gap-2 ${isSuperadmin ? 'grid-cols-3' : 'grid-cols-2'}`}>
+                    {isSuperadmin && (
+                      <label
+                        className={`flex flex-col p-3 rounded-xl border cursor-pointer transition-all ${
+                          selectedRole === 'admin'
+                            ? 'bg-purple-950/40 border-purple-500/50 text-white shadow-sm ring-1 ring-purple-500/30'
+                            : 'bg-[#090d16] border-[#1a2234] text-slate-400 hover:border-slate-700'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="font-semibold text-xs flex items-center gap-1.5 text-purple-300">
+                            <ShieldCheck className="w-3.5 h-3.5 text-purple-400" />
+                            Admin
+                          </span>
+                          <input
+                            type="radio"
+                            name="role"
+                            value="admin"
+                            checked={selectedRole === 'admin'}
+                            onChange={() => setSelectedRole('admin')}
+                            className="accent-purple-600"
+                          />
+                        </div>
+                        <span className="text-[10px] text-slate-400">
+                          Team lead. Manages teammates & KBs.
+                        </span>
+                      </label>
+                    )}
+
                     <label
                       className={`flex flex-col p-3 rounded-xl border cursor-pointer transition-all ${
                         selectedRole === 'editor'
@@ -723,6 +881,164 @@ function TeamMembersContent() {
                       <UserPlus className="w-3.5 h-3.5" />
                     )}
                     <span>{isSubmitting ? 'Verifying...' : 'Add to Team'}</span>
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Assign Administrator Modal (When team has NO admin) */}
+        {isAssignAdminModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-[#0c1220] border border-purple-500/40 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden">
+              <div className="px-5 py-4 border-b border-[#1a2234] flex items-center justify-between bg-[#080c16]">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-purple-400" />
+                  <h3 className="text-sm font-semibold text-white">
+                    Assign Administrator for {currentTeamObj?.name || 'Team'}
+                  </h3>
+                </div>
+                <button
+                  onClick={() => setIsAssignAdminModalOpen(false)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <form onSubmit={handleAssignAdminSubmit} className="p-5 space-y-4">
+                <div className="p-3.5 rounded-xl bg-purple-950/30 border border-purple-500/30 text-xs text-slate-300 leading-relaxed">
+                  This workspace currently has no active administrator. Assign a team leader to govern permissions and workspace data:
+                </div>
+
+                {assignAdminError && (
+                  <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                    <span>{assignAdminError}</span>
+                  </div>
+                )}
+
+                <div className="space-y-2.5">
+                  {/* Option 1: Promote existing teammate */}
+                  <label
+                    className={`block p-3.5 rounded-xl border transition-all cursor-pointer ${
+                      members.length === 0
+                        ? 'opacity-40 cursor-not-allowed bg-[#090d16] border-[#1a2234]'
+                        : assignMode === 'promote'
+                        ? 'bg-purple-950/40 border-purple-500/60 shadow-md ring-1 ring-purple-500/30'
+                        : 'bg-[#090d16] border-[#1a2234] hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-2">
+                        <UserCheck className="w-4 h-4 text-purple-400" />
+                        <span className="text-xs font-semibold text-white">
+                          Promote an Existing Teammate
+                        </span>
+                      </div>
+                      <input
+                        type="radio"
+                        name="assignMode"
+                        value="promote"
+                        disabled={members.length === 0}
+                        checked={assignMode === 'promote'}
+                        onChange={() => setAssignMode('promote')}
+                        className="accent-purple-600"
+                      />
+                    </div>
+                    <p className="text-[11px] text-slate-400 mb-2">
+                      {members.length > 0
+                        ? 'Choose a current team member to elevate to Administrator.'
+                        : 'No existing teammates on this team to promote.'}
+                    </p>
+
+                    {assignMode === 'promote' && members.length > 0 && (
+                      <select
+                        value={promoteMemberEmail}
+                        onChange={(e) => setPromoteMemberEmail(e.target.value)}
+                        className="w-full mt-2 bg-[#0d1424] border border-purple-500/40 rounded-lg px-3 py-1.5 text-xs text-white outline-none focus:border-purple-400"
+                      >
+                        {members.map((m) => (
+                          <option key={m.email} value={m.email} className="bg-[#0d1424] text-slate-200">
+                            {m.name ? `${m.name} (${m.email})` : m.email} — current {m.teamRole}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </label>
+
+                  {/* Option 2: Add and assign a new colleague */}
+                  <label
+                    className={`block p-3.5 rounded-xl border transition-all cursor-pointer ${
+                      assignMode === 'new'
+                        ? 'bg-purple-950/40 border-purple-500/60 shadow-md ring-1 ring-purple-500/30'
+                        : 'bg-[#090d16] border-[#1a2234] hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-2">
+                        <UserPlus className="w-4 h-4 text-indigo-400" />
+                        <span className="text-xs font-semibold text-white">
+                          Assign New Colleague from Organization
+                        </span>
+                      </div>
+                      <input
+                        type="radio"
+                        name="assignMode"
+                        value="new"
+                        checked={assignMode === 'new'}
+                        onChange={() => setAssignMode('new')}
+                        className="accent-purple-600"
+                      />
+                    </div>
+                    <p className="text-[11px] text-slate-400 mb-2">
+                      Add a verified Google Workspace colleague directly as the new Administrator.
+                    </p>
+
+                    {assignMode === 'new' && (
+                      <div className="mt-2">
+                        <VerifiedEmailInput
+                          label="Colleague Email Address"
+                          placeholder="colleague@foodgroup.ph"
+                          value={assignAdminEmail}
+                          onChange={(email, isValid) => {
+                            setAssignAdminEmail(email);
+                            setIsAssignAdminEmailValid(isValid);
+                          }}
+                          currentTeamId={activeTeamId}
+                          required
+                          autoFocus
+                          helperText="Must be an authorized Google Workspace account in your organization."
+                        />
+                      </div>
+                    )}
+                  </label>
+                </div>
+
+                <div className="pt-2 flex items-center justify-end gap-2 border-t border-[#1a2234]">
+                  <button
+                    type="button"
+                    onClick={() => setIsAssignAdminModalOpen(false)}
+                    className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-300 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={
+                      isAssigningAdmin ||
+                      (assignMode === 'promote' && !promoteMemberEmail) ||
+                      (assignMode === 'new' && (!assignAdminEmail.trim() || !isAssignAdminEmailValid))
+                    }
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 active:bg-purple-700 text-white text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed shadow-md shadow-purple-600/20 cursor-pointer"
+                  >
+                    {isAssigningAdmin ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                    )}
+                    <span>{isAssigningAdmin ? 'Assigning...' : 'Assign as Administrator'}</span>
                   </button>
                 </div>
               </form>

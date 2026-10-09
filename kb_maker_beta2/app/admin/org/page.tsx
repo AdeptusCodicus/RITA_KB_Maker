@@ -7,6 +7,7 @@ import {
   Plus,
   Shield,
   ShieldCheck,
+  ShieldAlert,
   Users,
   FileText,
   RefreshCw,
@@ -56,6 +57,13 @@ export default function SuperadminOrgPage() {
   const [teamToArchive, setTeamToArchive] = useState<EnrichedTeam | null>(null);
   const [isArchiving, setIsArchiving] = useState(false);
   const [archiveError, setArchiveError] = useState<string | null>(null);
+
+  // Assign Admin Modal State
+  const [teamToAssignAdmin, setTeamToAssignAdmin] = useState<EnrichedTeam | null>(null);
+  const [orgAssignAdminEmail, setOrgAssignAdminEmail] = useState('');
+  const [isOrgAssignAdminEmailValid, setIsOrgAssignAdminEmailValid] = useState(false);
+  const [isOrgAssigningAdmin, setIsOrgAssigningAdmin] = useState(false);
+  const [orgAssignAdminError, setOrgAssignAdminError] = useState<string | null>(null);
 
   // Action states
   const [restoringId, setRestoringId] = useState<string | null>(null);
@@ -214,6 +222,39 @@ export default function SuperadminOrgPage() {
       alert('Network error purging team');
     } finally {
       setPurgingId(null);
+    }
+  };
+
+  const handleOrgAssignAdminSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!teamToAssignAdmin || !orgAssignAdminEmail.trim() || !isOrgAssignAdminEmailValid) return;
+
+    setIsOrgAssigningAdmin(true);
+    setOrgAssignAdminError(null);
+
+    try {
+      const res = await fetch(`/api/teams/${teamToAssignAdmin.id}/members`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: orgAssignAdminEmail.trim(),
+          role: 'admin',
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setOrgAssignAdminError(data.error || 'Failed to assign administrator');
+        return;
+      }
+
+      setTeamToAssignAdmin(null);
+      setOrgAssignAdminEmail('');
+      await fetchTeams();
+    } catch (err: any) {
+      setOrgAssignAdminError(err?.message || 'Network error assigning administrator');
+    } finally {
+      setIsOrgAssigningAdmin(false);
     }
   };
 
@@ -442,6 +483,7 @@ export default function SuperadminOrgPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {displayedTeams.map((team) => {
                 const isArchived = team.status === 'archived';
+                const hasNoAdmin = !isArchived && (!team.adminEmails || team.adminEmails.length === 0);
                 const purgeDate = team.scheduledPurgeAt ? new Date(team.scheduledPurgeAt) : null;
                 const diffDays = purgeDate
                   ? Math.max(0, Math.ceil((purgeDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
@@ -453,6 +495,8 @@ export default function SuperadminOrgPage() {
                     className={`bg-[#0e1424] border rounded-xl p-4 flex flex-col justify-between transition-all group hover:shadow-lg ${
                       isArchived
                         ? 'border-amber-500/30 hover:border-amber-500/60 hover:shadow-amber-950/20'
+                        : hasNoAdmin
+                        ? 'border-amber-500/40 hover:border-amber-500/70 hover:shadow-amber-950/20'
                         : 'border-[#1a2234] hover:border-purple-500/40 hover:shadow-purple-950/20'
                     }`}
                   >
@@ -461,17 +505,30 @@ export default function SuperadminOrgPage() {
                         <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
                           isArchived
                             ? 'bg-amber-500/10 border border-amber-500/20 text-amber-400'
+                            : hasNoAdmin
+                            ? 'bg-amber-500/10 border border-amber-500/30 text-amber-400'
                             : 'bg-purple-500/10 border border-purple-500/20 text-purple-400'
                         }`}>
-                          {isArchived ? <Clock className="w-4 h-4" /> : <Building2 className="w-4 h-4" />}
+                          {isArchived ? (
+                            <Clock className="w-4 h-4" />
+                          ) : hasNoAdmin ? (
+                            <ShieldAlert className="w-4 h-4" />
+                          ) : (
+                            <Building2 className="w-4 h-4" />
+                          )}
                         </div>
 
                         <div className="flex items-center gap-1.5">
-                          {isArchived && (
+                          {isArchived ? (
                             <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-amber-500/15 border border-amber-500/30 text-amber-300">
                               {diffDays}d in Limbo
                             </span>
-                          )}
+                          ) : hasNoAdmin ? (
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-amber-500/15 border border-amber-500/30 text-amber-300 flex items-center gap-1">
+                              <ShieldAlert className="w-3 h-3 text-amber-400" />
+                              <span>No Admin</span>
+                            </span>
+                          ) : null}
                           <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-[#131b2e] border border-[#22314d] text-slate-400">
                             {team.id}
                           </span>
@@ -486,7 +543,7 @@ export default function SuperadminOrgPage() {
                       <div className="border-t border-[#1a2234]/60 pt-2 mb-3 space-y-1.5 text-[11px]">
                         <div>
                           <span className="text-slate-500">Admins: </span>
-                          <span className="text-slate-300 font-mono">
+                          <span className={`font-mono ${hasNoAdmin ? 'text-amber-400 font-medium' : 'text-slate-300'}`}>
                             {team.adminEmails && team.adminEmails.length > 0
                               ? team.adminEmails.join(', ')
                               : 'None assigned'}
@@ -538,6 +595,22 @@ export default function SuperadminOrgPage() {
                           </>
                         ) : (
                           <>
+                            {hasNoAdmin && (
+                              <button
+                                onClick={() => {
+                                  setTeamToAssignAdmin(team);
+                                  setOrgAssignAdminEmail('');
+                                  setIsOrgAssignAdminEmailValid(false);
+                                  setOrgAssignAdminError(null);
+                                }}
+                                className="flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[11px] font-semibold transition-all cursor-pointer"
+                                title="Assign an administrator to this unmanaged team"
+                              >
+                                <ShieldCheck className="w-3 h-3 text-amber-400" />
+                                <span>Assign Admin</span>
+                              </button>
+                            )}
+
                             <button
                               onClick={() => router.push(`/team/members?teamId=${team.id}`)}
                               className="flex items-center gap-1 text-[11px] font-medium text-purple-400 hover:text-purple-300 transition-colors cursor-pointer"
@@ -566,6 +639,78 @@ export default function SuperadminOrgPage() {
             </div>
           )}
         </div>
+
+        {/* Assign Admin Modal */}
+        {teamToAssignAdmin && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-[#0c1220] border border-amber-500/40 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
+              <div className="px-5 py-4 border-b border-[#1a2234] flex items-center justify-between bg-[#080c16]">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-amber-400" />
+                  <h3 className="text-sm font-semibold text-white">
+                    Assign Administrator: {teamToAssignAdmin.name}
+                  </h3>
+                </div>
+                <button
+                  onClick={() => setTeamToAssignAdmin(null)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <form onSubmit={handleOrgAssignAdminSubmit} className="p-5 space-y-4">
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  This team currently has no administrator assigned. Enter an authorized colleague from your organization to lead{' '}
+                  <strong className="text-white">{teamToAssignAdmin.name}</strong>:
+                </p>
+
+                {orgAssignAdminError && (
+                  <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                    <span>{orgAssignAdminError}</span>
+                  </div>
+                )}
+
+                <VerifiedEmailInput
+                  label="Administrator Email Address"
+                  placeholder="colleague@foodgroup.ph"
+                  value={orgAssignAdminEmail}
+                  onChange={(email, isValid) => {
+                    setOrgAssignAdminEmail(email);
+                    setIsOrgAssignAdminEmailValid(isValid);
+                  }}
+                  currentTeamId={teamToAssignAdmin.id}
+                  required
+                  autoFocus
+                  helperText="Colleague will be assigned to this team with Administrator role."
+                />
+
+                <div className="pt-2 flex items-center justify-end gap-2 border-t border-[#1a2234]">
+                  <button
+                    type="button"
+                    onClick={() => setTeamToAssignAdmin(null)}
+                    className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-300 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isOrgAssigningAdmin || !orgAssignAdminEmail.trim() || !isOrgAssignAdminEmailValid}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 active:bg-amber-700 text-white text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed shadow-md shadow-amber-600/20 cursor-pointer"
+                  >
+                    {isOrgAssigningAdmin ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                    )}
+                    <span>{isOrgAssigningAdmin ? 'Assigning...' : 'Assign Administrator'}</span>
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
 
         {/* Move to 30-Day Limbo Modal */}
         {teamToArchive && (
