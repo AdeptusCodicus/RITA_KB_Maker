@@ -27,7 +27,15 @@ export async function GET(request: Request) {
 
     // Superadmins (and superadmins simulating a role) can retrieve all teams with summaries
     if (session.isSuperadmin || isRealSuperadmin) {
-      const teams = await getAllTeams();
+      const { searchParams } = new URL(request.url);
+      const statusParam = searchParams.get('status');
+      
+      let teams = await getAllTeams(statusParam === 'all' || statusParam === 'archived');
+      if (statusParam === 'archived') {
+        teams = teams.filter((t) => t.status === 'archived');
+      } else if (statusParam !== 'all') {
+        teams = teams.filter((t) => t.status !== 'archived');
+      }
       // Enrich with member and KB counts safely
       const enriched = await Promise.all(
         teams.map(async (t) => {

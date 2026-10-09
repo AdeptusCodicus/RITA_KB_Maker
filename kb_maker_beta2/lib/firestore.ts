@@ -1,4 +1,4 @@
-import { Firestore } from '@google-cloud/firestore';
+import { Firestore, FieldValue } from '@google-cloud/firestore';
 import type {
   UserDocument,
   TeamDocument,
@@ -127,10 +127,12 @@ export async function getTeamDoc(teamId: string): Promise<TeamDocument | null> {
   return snapshot.data() as TeamDocument;
 }
 
-export async function getAllTeams(): Promise<TeamDocument[]> {
+export async function getAllTeams(includeArchived: boolean = false): Promise<TeamDocument[]> {
   const db = getFirestoreDb();
   const snapshot = await db.collection('teams').orderBy('name', 'asc').get();
-  return snapshot.docs.map((doc) => doc.data() as TeamDocument);
+  const all = snapshot.docs.map((doc) => doc.data() as TeamDocument);
+  if (includeArchived) return all;
+  return all.filter((t) => t.status !== 'archived');
 }
 
 export async function createTeamDoc(
@@ -147,12 +149,166 @@ export async function createTeamDoc(
     name,
     description,
     adminEmails: adminEmails.map((e) => e.toLowerCase().trim()),
+    status: 'active',
     createdAt: now,
     createdBy: createdBy.toLowerCase().trim(),
     updatedAt: now,
   };
   await db.collection('teams').doc(teamId).set(team);
   return team;
+}
+
+/**
+ * Soft-deletes a team into 30-day limbo.
+ * Unassigns all active team members immediately so they can join new teams.
+ * Preserves team metadata, KB history, and audit logs during the 30-day window.
+ */
+export async function archiveTeamDoc(
+  teamId: string,
+  deletedBy: { email: string; name?: string; role: string }
+): Promise<TeamDocument> {
+  const db = getFirestoreDb();
+  const teamRef = db.collection('teams').doc(teamId);
+  const teamDoc = await teamRef.get();
+  if (!teamDoc.exists) {
+    throw new Error('Team not found');
+  }
+
+  const now = new Date();
+  const purgeDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000); // 30-day limbo window
+
+  const updateData: Partial<TeamDocument> = {
+    status: 'archived',
+    deletedAt: now.toISOString(),
+    scheduledPurgeAt: purgeDate.toISOString(),
+    deletedBy: {
+      email: deletedBy.email.toLowerCase().trim(),
+      name: deletedBy.name,
+    },
+    updatedAt: now.toISOString(),
+  };
+
+  await teamRef.update(updateData);
+
+  // Unassign all members from this team so they can join or create new teams
+  const userSnapshot = await db.collection('users').where('teamId', '==', teamId).get();
+  if (!userSnapshot.empty) {
+    const batch = db.batch();
+    for (const doc of userSnapshot.docs) {
+      batch.update(doc.ref, {
+        teamId: null,
+        teamRole: null,
+        updatedAt: now.toISOString(),
+      });
+    }
+    await batch.commit();
+  }
+
+  // Record audit log
+  await addAuditLog(
+    teamId,
+    'TEAM_ARCHIVED',
+    deletedBy,
+    'team',
+    teamId,
+    {
+      scheduledPurgeAt: purgeDate.toISOString(),
+      unassignedMembersCount: userSnapshot.docs.length,
+    }
+  );
+
+  const updatedDoc = await teamRef.get();
+  return updatedDoc.data() as TeamDocument;
+}
+
+/**
+ * Restores a team from 30-day limbo back to active status.
+ */
+export async function restoreTeamDoc(
+  teamId: string,
+  restoredBy: { email: string; name?: string; role: string }
+): Promise<TeamDocument> {
+  const db = getFirestoreDb();
+  const teamRef = db.collection('teams').doc(teamId);
+  const teamDoc = await teamRef.get();
+  if (!teamDoc.exists) {
+    throw new Error('Team not found');
+  }
+
+  const now = new Date().toISOString();
+  await teamRef.update({
+    status: 'active',
+    deletedAt: FieldValue.delete(),
+    scheduledPurgeAt: FieldValue.delete(),
+    deletedBy: FieldValue.delete(),
+    updatedAt: now,
+  });
+
+  await addAuditLog(
+    teamId,
+    'TEAM_RESTORED',
+    restoredBy,
+    'team',
+    teamId,
+    {}
+  );
+
+  const updatedDoc = await teamRef.get();
+  return updatedDoc.data() as TeamDocument;
+}
+
+/**
+ * Permanently deletes a team document and its metadata in Firestore.
+ * NOTE: Published knowledge base files in Databricks Unity Catalog remain untouched.
+ */
+export async function purgeTeamDoc(
+  teamId: string,
+  purgedBy: { email: string; name?: string; role: string }
+): Promise<void> {
+  const db = getFirestoreDb();
+  const kbSnapshot = await db.collection('knowledge_bases').where('teamId', '==', teamId).get();
+  const logSnapshot = await db.collection('audit_logs').where('teamId', '==', teamId).get();
+
+  const batch = db.batch();
+  for (const doc of kbSnapshot.docs) {
+    batch.delete(doc.ref);
+  }
+  for (const doc of logSnapshot.docs) {
+    batch.delete(doc.ref);
+  }
+  batch.delete(db.collection('teams').doc(teamId));
+  await batch.commit();
+}
+
+/**
+ * Synchronizes adminEmails list on the team document when roles are changed.
+ */
+export async function syncTeamAdminRole(
+  teamId: string,
+  email: string,
+  isAdmin: boolean
+): Promise<void> {
+  const db = getFirestoreDb();
+  const teamRef = db.collection('teams').doc(teamId);
+  const teamDoc = await teamRef.get();
+  if (!teamDoc.exists) return;
+
+  const teamData = teamDoc.data() as TeamDocument;
+  const normalizedEmail = email.toLowerCase().trim();
+  let currentAdmins = (teamData.adminEmails || []).map((e) => e.toLowerCase().trim());
+
+  if (isAdmin) {
+    if (!currentAdmins.includes(normalizedEmail)) {
+      currentAdmins.push(normalizedEmail);
+    }
+  } else {
+    currentAdmins = currentAdmins.filter((e) => e !== normalizedEmail);
+  }
+
+  await teamRef.update({
+    adminEmails: currentAdmins,
+    updatedAt: new Date().toISOString(),
+  });
 }
 
 export async function getTeamMembers(teamId: string): Promise<TeamMemberItem[]> {

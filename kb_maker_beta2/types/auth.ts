@@ -22,6 +22,13 @@ export interface TeamDocument {
   createdAt: string;
   createdBy: string;
   updatedAt: string;
+  status?: 'active' | 'archived';
+  deletedAt?: string;
+  scheduledPurgeAt?: string;
+  deletedBy?: {
+    email: string;
+    name?: string;
+  };
 }
 
 export interface TeamMemberItem {
@@ -62,7 +69,11 @@ export type AuditActionType =
   | 'MEMBER_REMOVED'
   | 'ROLE_CHANGED'
   | 'TEAM_CREATED'
-  | 'ADMIN_ASSIGNED';
+  | 'TEAM_ARCHIVED'
+  | 'TEAM_RESTORED'
+  | 'TEAM_PURGED'
+  | 'ADMIN_ASSIGNED'
+  | 'ADMIN_REMOVED';
 
 export interface AuditLogRecord {
   id: string;

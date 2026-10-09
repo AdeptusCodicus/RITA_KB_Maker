@@ -7,6 +7,7 @@ import {
   UserPlus,
   Shield,
   ShieldCheck,
+  ShieldAlert,
   Eye,
   Edit3,
   Trash2,
@@ -17,6 +18,9 @@ import {
   X,
   Mail,
   Sparkles,
+  ArrowUp,
+  ArrowDown,
+  UserCheck,
 } from 'lucide-react';
 import Sidebar from '@/components/Sidebar';
 import { useAuth } from '@/components/AuthProvider';
@@ -41,6 +45,16 @@ function TeamMembersContent() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isEmailValid, setIsEmailValid] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
+
+  // Admin Succession Modal State
+  const [isSuccessionModalOpen, setIsSuccessionModalOpen] = useState(false);
+  const [adminToRemove, setAdminToRemove] = useState<TeamMemberItem | null>(null);
+  const [successionPlan, setSuccessionPlan] = useState<'promote' | 'new' | 'unassigned'>('promote');
+  const [selectedPromoteEmail, setSelectedPromoteEmail] = useState<string>('');
+  const [newAdminEmail, setNewAdminEmail] = useState<string>('');
+  const [isNewAdminEmailValid, setIsNewAdminEmailValid] = useState<boolean>(false);
+  const [isRemovingAdmin, setIsRemovingAdmin] = useState<boolean>(false);
+  const [successionError, setSuccessionError] = useState<string | null>(null);
 
   const canManageMembers = isSuperadmin || role === 'admin';
 
@@ -158,27 +172,115 @@ function TeamMembersContent() {
     }
   };
 
-  const handleRemoveMember = async (memberEmail: string) => {
-    if (!confirm(`Are you sure you want to remove ${memberEmail} from this team?`)) return;
+  const handlePromoteOrDemote = async (member: TeamMemberItem, targetRole: TeamRole) => {
+    if (member.teamRole === 'admin' && targetRole !== 'admin') {
+      const adminCount = members.filter((m) => m.teamRole === 'admin').length;
+      if (adminCount <= 1) {
+        const proceed = confirm(
+          `Warning: ${member.name || member.email} is the only administrator of this team. Demoting them will leave the team without an active administrator until a Superadmin assigns one. Do you want to proceed?`
+        );
+        if (!proceed) return;
+      }
+    }
+    await handleRoleChange(member.email, targetRole);
+  };
+
+  const handleRemoveMember = async (member: TeamMemberItem) => {
+    const isAdmin = member.teamRole === 'admin';
+    const adminCount = members.filter((m) => m.teamRole === 'admin').length;
+
+    // If removing the sole/last admin of the team, trigger succession modal
+    if (isAdmin && adminCount <= 1) {
+      setAdminToRemove(member);
+      const otherMembers = members.filter((m) => m.email !== member.email);
+      if (otherMembers.length > 0) {
+        setSuccessionPlan('promote');
+        setSelectedPromoteEmail(otherMembers[0].email);
+      } else {
+        setSuccessionPlan('new');
+        setSelectedPromoteEmail('');
+      }
+      setNewAdminEmail('');
+      setIsNewAdminEmailValid(false);
+      setSuccessionError(null);
+      setIsSuccessionModalOpen(true);
+      return;
+    }
+
+    const confirmMsg = isAdmin
+      ? `Are you sure you want to remove administrator ${member.name || member.email} from this team?`
+      : `Are you sure you want to remove ${member.name || member.email} from this team?`;
+
+    if (!confirm(confirmMsg)) return;
 
     try {
       const targetTeam = activeTeamId;
       if (!targetTeam) return;
       const res = await fetch(
-        `/api/teams/${targetTeam}/members/${encodeURIComponent(memberEmail)}`,
+        `/api/teams/${targetTeam}/members/${encodeURIComponent(member.email)}`,
         {
           method: 'DELETE',
         }
       );
 
       if (res.ok) {
-        setMembers((prev) => prev.filter((m) => m.email !== memberEmail));
+        setMembers((prev) => prev.filter((m) => m.email !== member.email));
       } else {
         const err = await res.json();
         alert(err.error || 'Failed to remove member');
       }
     } catch {
       alert('Network error while removing member');
+    }
+  };
+
+  const handleExecuteSuccession = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adminToRemove || !activeTeamId) return;
+
+    setIsRemovingAdmin(true);
+    setSuccessionError(null);
+
+    try {
+      const body: { promoteEmail?: string; newAdminEmail?: string } = {};
+      if (successionPlan === 'promote') {
+        if (!selectedPromoteEmail) {
+          setSuccessionError('Please select an existing team member to promote.');
+          setIsRemovingAdmin(false);
+          return;
+        }
+        body.promoteEmail = selectedPromoteEmail;
+      } else if (successionPlan === 'new') {
+        if (!newAdminEmail.trim() || !isNewAdminEmailValid) {
+          setSuccessionError('Please enter a valid organization email address for the new administrator.');
+          setIsRemovingAdmin(false);
+          return;
+        }
+        body.newAdminEmail = newAdminEmail.trim();
+      }
+
+      const res = await fetch(
+        `/api/teams/${activeTeamId}/members/${encodeURIComponent(adminToRemove.email)}`,
+        {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        }
+      );
+
+      const data = await res.json();
+      if (!res.ok) {
+        setSuccessionError(data.error || 'Failed to remove administrator and execute succession plan');
+        return;
+      }
+
+      setIsSuccessionModalOpen(false);
+      setAdminToRemove(null);
+      await fetchMembers();
+    } catch (err: any) {
+      setSuccessionError(err?.message || 'Network error executing succession plan');
+    } finally {
+      setIsRemovingAdmin(false);
     }
   };
 
@@ -192,6 +294,9 @@ function TeamMembersContent() {
   });
 
   const currentTeamObj = teams.find((t) => t.id === activeTeamId);
+  const otherMembersForSuccession = adminToRemove
+    ? members.filter((m) => m.email !== adminToRemove.email)
+    : [];
 
   return (
     <div className="flex h-full w-full bg-[#070a11] text-slate-100 antialiased overflow-hidden">
@@ -227,7 +332,7 @@ function TeamMembersContent() {
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
                 {canManageMembers
-                  ? 'Manage team members, invite colleagues, and control access permissions.'
+                  ? 'Manage team members, promote/demote roles, and govern workspace leadership.'
                   : 'Directory of colleagues and administrators in your workspace.'}
               </p>
             </div>
@@ -335,14 +440,24 @@ function TeamMembersContent() {
                         </td>
 
                         <td className="px-4 py-3.5">
-                          {canManageMembers && !isAdmin ? (
+                          {isSuperadmin ? (
                             <select
                               value={member.teamRole}
-                              onChange={(e) => handleRoleChange(member.email, e.target.value as TeamRole)}
-                              className="bg-[#090d16] border border-[#1a2234] rounded-lg px-2.5 py-1 text-xs text-slate-200 outline-none focus:border-blue-500/60"
+                              onChange={(e) => handlePromoteOrDemote(member, e.target.value as TeamRole)}
+                              className="bg-[#090d16] border border-[#1a2234] rounded-lg px-2.5 py-1 text-xs text-slate-200 outline-none focus:border-purple-500/60 font-medium cursor-pointer"
                             >
-                              <option value="editor">Editor (Can add/edit/delete)</option>
-                              <option value="viewer">Viewer (Read-only)</option>
+                              <option value="admin">👑 Admin (Team Lead)</option>
+                              <option value="editor">✏️ Editor (Can manage KBs)</option>
+                              <option value="viewer">👁️ Viewer (Read-only)</option>
+                            </select>
+                          ) : canManageMembers && !isAdmin ? (
+                            <select
+                              value={member.teamRole}
+                              onChange={(e) => handlePromoteOrDemote(member, e.target.value as TeamRole)}
+                              className="bg-[#090d16] border border-[#1a2234] rounded-lg px-2.5 py-1 text-xs text-slate-200 outline-none focus:border-blue-500/60 font-medium cursor-pointer"
+                            >
+                              <option value="editor">✏️ Editor (Can manage KBs)</option>
+                              <option value="viewer">👁️ Viewer (Read-only)</option>
                             </select>
                           ) : (
                             <span
@@ -379,15 +494,87 @@ function TeamMembersContent() {
 
                         {canManageMembers && (
                           <td className="px-4 py-3.5 text-right">
-                            {!isAdmin && !isSelf && (
-                              <button
-                                onClick={() => handleRemoveMember(member.email)}
-                                className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer"
-                                title="Remove member"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            )}
+                            <div className="flex items-center justify-end gap-1.5">
+                              {/* Quick Promote / Demote Action Buttons */}
+                              {isSuperadmin ? (
+                                <>
+                                  {member.teamRole === 'viewer' && (
+                                    <button
+                                      onClick={() => handlePromoteOrDemote(member, 'editor')}
+                                      className="flex items-center gap-1 px-2 py-1 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 hover:border-blue-500/40 text-[10px] font-medium transition-all cursor-pointer"
+                                      title="Promote to Editor (Manage KBs)"
+                                    >
+                                      <ArrowUp className="w-3 h-3" />
+                                      <span>Promote to Editor</span>
+                                    </button>
+                                  )}
+                                  {member.teamRole === 'editor' && (
+                                    <>
+                                      <button
+                                        onClick={() => handlePromoteOrDemote(member, 'admin')}
+                                        className="flex items-center gap-1 px-2 py-1 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/20 hover:border-purple-500/40 text-[10px] font-medium transition-all cursor-pointer"
+                                        title="Promote to Admin (Lead Team)"
+                                      >
+                                        <ShieldCheck className="w-3 h-3 text-purple-400" />
+                                        <span>Promote to Admin</span>
+                                      </button>
+                                      <button
+                                        onClick={() => handlePromoteOrDemote(member, 'viewer')}
+                                        className="flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 text-slate-400 hover:text-slate-200 border border-slate-700/60 text-[10px] font-medium transition-all cursor-pointer"
+                                        title="Demote to Viewer (Read-only)"
+                                      >
+                                        <ArrowDown className="w-3 h-3" />
+                                        <span>Demote to Viewer</span>
+                                      </button>
+                                    </>
+                                  )}
+                                  {member.teamRole === 'admin' && (
+                                    <button
+                                      onClick={() => handlePromoteOrDemote(member, 'editor')}
+                                      className="flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/20 hover:border-amber-500/40 text-[10px] font-medium transition-all cursor-pointer"
+                                      title="Demote to Editor"
+                                    >
+                                      <ArrowDown className="w-3 h-3" />
+                                      <span>Demote to Editor</span>
+                                    </button>
+                                  )}
+                                </>
+                              ) : role === 'admin' && !isAdmin ? (
+                                <>
+                                  {member.teamRole === 'viewer' && (
+                                    <button
+                                      onClick={() => handlePromoteOrDemote(member, 'editor')}
+                                      className="flex items-center gap-1 px-2 py-1 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 hover:border-blue-500/40 text-[10px] font-medium transition-all cursor-pointer"
+                                      title="Assign as Editor"
+                                    >
+                                      <Edit3 className="w-3 h-3" />
+                                      <span>Assign as Editor</span>
+                                    </button>
+                                  )}
+                                  {member.teamRole === 'editor' && (
+                                    <button
+                                      onClick={() => handlePromoteOrDemote(member, 'viewer')}
+                                      className="flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 text-slate-400 hover:text-slate-200 border border-slate-700/60 text-[10px] font-medium transition-all cursor-pointer"
+                                      title="Assign as Viewer"
+                                    >
+                                      <Eye className="w-3 h-3" />
+                                      <span>Assign as Viewer</span>
+                                    </button>
+                                  )}
+                                </>
+                              ) : null}
+
+                              {/* Remove Member Button */}
+                              {(isSuperadmin || (!isAdmin && !isSelf)) && (
+                                <button
+                                  onClick={() => handleRemoveMember(member)}
+                                  className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer"
+                                  title={isAdmin ? 'Remove administrator' : 'Remove member'}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
                           </td>
                         )}
                       </tr>
@@ -516,6 +703,197 @@ function TeamMembersContent() {
                       <UserPlus className="w-3.5 h-3.5" />
                     )}
                     <span>{isSubmitting ? 'Verifying...' : 'Add to Team'}</span>
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Admin Succession Modal */}
+        {isSuccessionModalOpen && adminToRemove && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-[#0c1220] border border-purple-500/40 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden">
+              <div className="px-5 py-4 border-b border-[#1a2234] flex items-center justify-between bg-[#080c16]">
+                <div className="flex items-center gap-2">
+                  <ShieldAlert className="w-5 h-5 text-purple-400" />
+                  <h3 className="text-sm font-semibold text-white">Administrator Succession Plan</h3>
+                </div>
+                <button
+                  onClick={() => setIsSuccessionModalOpen(false)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <form onSubmit={handleExecuteSuccession} className="p-5 space-y-4">
+                <div className="p-3.5 rounded-xl bg-purple-950/30 border border-purple-500/30 text-xs space-y-1">
+                  <p className="font-semibold text-purple-300">
+                    Removing Sole Administrator: {adminToRemove.name || adminToRemove.email}
+                  </p>
+                  <p className="text-slate-300 leading-relaxed">
+                    This user is currently the sole administrator for{' '}
+                    <strong className="text-white">{currentTeamObj?.name || 'this team'}</strong>.
+                    Teams require leadership to govern permissions and workspace data. Please choose a succession action:
+                  </p>
+                </div>
+
+                {successionError && (
+                  <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                    <span>{successionError}</span>
+                  </div>
+                )}
+
+                <div className="space-y-2.5">
+                  {/* Option 1: Promote an existing teammate */}
+                  <label
+                    className={`block p-3.5 rounded-xl border transition-all cursor-pointer ${
+                      otherMembersForSuccession.length === 0
+                        ? 'opacity-40 cursor-not-allowed bg-[#090d16] border-[#1a2234]'
+                        : successionPlan === 'promote'
+                        ? 'bg-purple-950/40 border-purple-500/60 shadow-md ring-1 ring-purple-500/30'
+                        : 'bg-[#090d16] border-[#1a2234] hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-2">
+                        <UserCheck className="w-4 h-4 text-purple-400" />
+                        <span className="text-xs font-semibold text-white">
+                          Promote Existing Teammate to Admin
+                        </span>
+                      </div>
+                      <input
+                        type="radio"
+                        name="successionPlan"
+                        value="promote"
+                        disabled={otherMembersForSuccession.length === 0}
+                        checked={successionPlan === 'promote'}
+                        onChange={() => setSuccessionPlan('promote')}
+                        className="accent-purple-600"
+                      />
+                    </div>
+                    <p className="text-[11px] text-slate-400 mb-2">
+                      {otherMembersForSuccession.length > 0
+                        ? 'Select an existing colleague on this team to take over administrator privileges.'
+                        : 'No other members currently exist on this team to promote.'}
+                    </p>
+
+                    {successionPlan === 'promote' && otherMembersForSuccession.length > 0 && (
+                      <select
+                        value={selectedPromoteEmail}
+                        onChange={(e) => setSelectedPromoteEmail(e.target.value)}
+                        className="w-full mt-2 bg-[#0d1424] border border-purple-500/40 rounded-lg px-3 py-1.5 text-xs text-white outline-none focus:border-purple-400"
+                      >
+                        {otherMembersForSuccession.map((m) => (
+                          <option key={m.email} value={m.email} className="bg-[#0d1424] text-slate-200">
+                            {m.name ? `${m.name} (${m.email})` : m.email} — current {m.teamRole}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </label>
+
+                  {/* Option 2: Assign a new colleague */}
+                  <label
+                    className={`block p-3.5 rounded-xl border transition-all cursor-pointer ${
+                      successionPlan === 'new'
+                        ? 'bg-purple-950/40 border-purple-500/60 shadow-md ring-1 ring-purple-500/30'
+                        : 'bg-[#090d16] border-[#1a2234] hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-2">
+                        <UserPlus className="w-4 h-4 text-indigo-400" />
+                        <span className="text-xs font-semibold text-white">
+                          Assign New Colleague from Organization as Admin
+                        </span>
+                      </div>
+                      <input
+                        type="radio"
+                        name="successionPlan"
+                        value="new"
+                        checked={successionPlan === 'new'}
+                        onChange={() => setSuccessionPlan('new')}
+                        className="accent-purple-600"
+                      />
+                    </div>
+                    <p className="text-[11px] text-slate-400 mb-2">
+                      Invite a verified colleague from your organization to lead this team.
+                    </p>
+
+                    {successionPlan === 'new' && (
+                      <div className="mt-2">
+                        <VerifiedEmailInput
+                          label="New Admin Colleague Email"
+                          placeholder="colleague@foodgroup.ph"
+                          value={newAdminEmail}
+                          onChange={(email, isValid) => {
+                            setNewAdminEmail(email);
+                            setIsNewAdminEmailValid(isValid);
+                          }}
+                          required
+                          autoFocus
+                          helperText="Must be a verified Google Workspace account in your organization."
+                        />
+                      </div>
+                    )}
+                  </label>
+
+                  {/* Option 3: Remove without replacement */}
+                  <label
+                    className={`block p-3.5 rounded-xl border transition-all cursor-pointer ${
+                      successionPlan === 'unassigned'
+                        ? 'bg-rose-950/40 border-rose-500/60 shadow-md ring-1 ring-rose-500/30'
+                        : 'bg-[#090d16] border-[#1a2234] hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <Shield className="w-4 h-4 text-rose-400" />
+                        <span className="text-xs font-semibold text-rose-300">
+                          Remove Admin & Leave Team Unstaffed / Leaderless
+                        </span>
+                      </div>
+                      <input
+                        type="radio"
+                        name="successionPlan"
+                        value="unassigned"
+                        checked={successionPlan === 'unassigned'}
+                        onChange={() => setSuccessionPlan('unassigned')}
+                        className="accent-rose-600"
+                      />
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      The administrator will be removed immediately. The team will remain without an administrator until a Superadmin assigns one.
+                    </p>
+                  </label>
+                </div>
+
+                <div className="pt-2 flex items-center justify-end gap-2 border-t border-[#1a2234]">
+                  <button
+                    type="button"
+                    onClick={() => setIsSuccessionModalOpen(false)}
+                    className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-300 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={
+                      isRemovingAdmin ||
+                      (successionPlan === 'promote' && !selectedPromoteEmail) ||
+                      (successionPlan === 'new' && (!newAdminEmail.trim() || !isNewAdminEmailValid))
+                    }
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 active:bg-rose-700 text-white text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed shadow-md shadow-rose-600/20 cursor-pointer"
+                  >
+                    {isRemovingAdmin ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-3.5 h-3.5" />
+                    )}
+                    <span>{isRemovingAdmin ? 'Processing...' : 'Confirm & Remove Administrator'}</span>
                   </button>
                 </div>
               </form>
